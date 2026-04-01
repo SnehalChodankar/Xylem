@@ -11,7 +11,7 @@ const sizes = [192, 512];
 async function generate() {
   for (const size of sizes) {
     await sharp(inputPath)
-      .resize(size, size, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+      .resize(size, size, { fit: 'contain', background: { r: 26, g: 26, b: 46, alpha: 1 } })
       .toFile(path.join(outDir, `icon-${size}.png`));
     console.log(`Generated icon-${size}.png`);
   }
