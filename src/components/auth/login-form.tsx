@@ -7,42 +7,60 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Link from "next/link";
-import { Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
-export default function SignupPage() {
+interface LoginFormProps {
+  onToggleMode: () => void;
+}
+
+export function LoginForm({ onToggleMode }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const router = useRouter();
   const supabase = createClient();
 
-  const handleSignup = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(error.message);
       setLoading(false);
     } else {
-      setSuccess(true);
+      router.push("/dashboard");
+      router.refresh();
     }
   };
 
-  const handleGoogleSignup = async () => {
+  const handleResetPassword = async () => {
+    if (!email) {
+      setError("Please enter your email address first.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setResetSent(false);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setResetSent(true);
+    }
+    setLoading(false);
+  };
+
+  const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
     const { error } = await supabase.auth.signInWithOAuth({
@@ -58,57 +76,34 @@ export default function SignupPage() {
     }
   };
 
-  if (success) {
-    return (
-      <Card className="border-border/50 shadow-2xl backdrop-blur-sm bg-card/80 text-center">
-        <CardContent className="pt-8 pb-8 px-6 flex flex-col items-center gap-4">
-          <div className="h-16 w-16 bg-emerald-500/10 rounded-full flex items-center justify-center">
-            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold mb-1">Check your inbox!</h2>
-            <p className="text-muted-foreground text-sm">
-              We sent a confirmation link to{" "}
-              <span className="font-semibold text-foreground">{email}</span>.
-              Click it to activate your account.
-            </p>
-          </div>
-          <Link href="/login" className="w-full">
-            <Button variant="outline" className="w-full rounded-xl">
-              Back to Sign In
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card className="border-border/50 shadow-2xl backdrop-blur-sm bg-card/80">
+    <Card className="border-border/50 shadow-2xl backdrop-blur-sm bg-card/80 w-full max-w-sm relative z-10">
       <CardHeader className="space-y-1 text-center pb-4">
-        <CardTitle className="text-2xl font-bold">Create account</CardTitle>
-        <CardDescription>Start tracking your finances today — for free</CardDescription>
+        {/* Logo inline for mobile clarity, hiding on desktop if we want or keep it. Actually, keeping it inside the card makes it self-contained. */}
+        <div className="flex flex-col items-center mb-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="Xylem Finance"
+            className="h-28 w-auto object-contain drop-shadow-[0_4px_24px_rgba(34,197,94,0.35)]"
+          />
+        </div>
+        <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+        <CardDescription>Sign in to your Xylem account</CardDescription>
       </CardHeader>
-      <form onSubmit={handleSignup}>
+      <form onSubmit={handleLogin}>
         <CardContent className="space-y-4 pb-8">
           {error && (
             <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium text-center">
               {error}
             </div>
           )}
-          <div className="space-y-1.5">
-            <Label htmlFor="name" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Full Name
-            </Label>
-            <Input
-              id="name"
-              placeholder="John Doe"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              className="h-11"
-            />
-          </div>
+          {resetSent && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-sm font-medium text-center flex items-center justify-center gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Reset link sent! Check your email.
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Email
@@ -125,19 +120,27 @@ export default function SignupPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Password
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Password
+              </Label>
+              <button 
+                type="button" 
+                onClick={handleResetPassword}
+                disabled={loading}
+                className="text-xs text-primary hover:underline font-medium disabled:opacity-50"
+              >
+                Forgot password?
+              </button>
+            </div>
             <div className="relative">
               <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
-                placeholder="Min. 6 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
-                autoComplete="new-password"
+                autoComplete="current-password"
                 className="h-11 pr-10"
               />
               <button
@@ -154,31 +157,31 @@ export default function SignupPage() {
           <Button
             type="submit"
             className="w-full h-11 rounded-xl text-base font-semibold"
-            disabled={loading || !email || !password || !fullName}
+            disabled={loading || !email || !password}
           >
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating account...
+                Signing in...
               </>
             ) : (
-              "Create Account"
+              "Sign In"
             )}
           </Button>
 
           <div className="relative my-2">
             <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
+              <span className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-[#1e1e32] px-2 text-muted-foreground rounded">Or continue with</span>
             </div>
           </div>
 
           <Button
             type="button"
             variant="outline"
-            onClick={handleGoogleSignup}
+            onClick={handleGoogleLogin}
             disabled={loading}
             className="w-full h-11 rounded-xl text-base font-semibold border-border/50 hover:bg-accent/50"
           >
@@ -204,10 +207,14 @@ export default function SignupPage() {
           </Button>
 
           <p className="text-center text-sm text-muted-foreground mt-2">
-            Already have an account?{" "}
-            <Link href="/login" className="text-primary font-semibold hover:underline">
-              Sign in
-            </Link>
+            Don&apos;t have an account?{" "}
+            <button
+              type="button"
+              onClick={onToggleMode}
+              className="text-primary font-semibold hover:underline"
+            >
+              Sign up free
+            </button>
           </p>
         </CardFooter>
       </form>
