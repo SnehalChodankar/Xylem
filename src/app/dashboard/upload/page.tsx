@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Upload, FileText, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, CheckCircle2, ShieldAlert } from "lucide-react";
 import { CATEGORY_RULES } from "@/lib/demo-data";
 
 interface ParsedTransaction {
@@ -264,6 +264,24 @@ export default function UploadPage() {
           Import transactions from your bank&apos;s CSV export
         </p>
       </div>
+
+      {/* Safety Disclaimer */}
+      <Card className="border-amber-500/20 bg-amber-500/5 overflow-hidden">
+        <CardContent className="p-4 flex gap-4">
+          <div className="h-10 w-10 shrink-0 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-500">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-amber-900 dark:text-amber-400">Privacy & Security Notice</p>
+            <p className="text-xs text-amber-800/70 dark:text-amber-500/70 leading-relaxed">
+              Xylem processes your data to extract transaction details. Before uploading, 
+              ensure your CSV file does NOT contain sensitive information like passwords, 
+              full account numbers, or personal identity numbers. 
+              <span className="block mt-1 font-semibold">User assumes all liability for uploaded data.</span>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Drop zone */}
       <div

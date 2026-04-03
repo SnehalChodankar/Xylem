@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Sidebar } from "@/components/layout/sidebar";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Header } from "@/components/layout/header";
+import { DisclaimerDialog } from "@/components/layout/disclaimer-dialog";
 import { Loader2 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -50,7 +51,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden text-sm">
+      <DisclaimerDialog />
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
