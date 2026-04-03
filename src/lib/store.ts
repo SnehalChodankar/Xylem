@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { Transaction, Category, Account, Budget } from "./types";
+import { Transaction, Category, Account, Budget, RecurringTransaction, Notification } from "./types";
 import { DEFAULT_CATEGORIES } from "./demo-data";
 import { createClient } from "./supabase/client";
 
@@ -41,6 +41,8 @@ interface AppState {
   categories: Category[];
   accounts: Account[];
   budgets: Budget[];
+  recurring_transactions: RecurringTransaction[];
+  notifications: Notification[];
 
   // ── UI state ──
   selectedMonth: number;
@@ -64,6 +66,16 @@ interface AppState {
   updateTransaction: (id: string, t: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   importTransactions: (txns: Omit<Transaction, "id" | "created_at" | "updated_at" | "user_id">[]) => Promise<void>;
+  
+  // ── actions: recurring ──
+  addRecurringTransaction: (r: Omit<RecurringTransaction, "id" | "created_at" | "user_id">) => Promise<void>;
+  updateRecurringTransaction: (id: string, r: Partial<RecurringTransaction>) => Promise<void>;
+  deleteRecurringTransaction: (id: string) => Promise<void>;
+
+  // ── actions: notifications ──
+  addNotification: (n: Omit<Notification, "id" | "created_at" | "user_id" | "is_read">) => Promise<void>;
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
 
   // ── actions: categories ──
   addCategory: (c: Omit<Category, "id" | "user_id">) => Promise<void>;
@@ -94,6 +106,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   categories: [],
   accounts: [],
   budgets: [],
+  recurring_transactions: [],
+  notifications: [],
   selectedMonth: currentMonth,
   selectedYear: currentYear,
   isDarkMode: true,
@@ -109,18 +123,61 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!userId) return;
     set({ isLoading: true });
 
-    const [txRes, catRes, accRes, budRes] = await Promise.all([
+    const [txRes, catRes, accRes, budRes, recRes, notRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
       supabase.from("accounts").select("*").eq("user_id", userId),
       supabase.from("budgets").select("*").eq("user_id", userId),
+      supabase.from("recurring_transactions").select("*").eq("user_id", userId),
+      supabase.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     ]);
 
+    const transactions = (txRes.data ?? []) as Transaction[];
+    let notifications = (notRes.data ?? []) as Notification[];
+
+    // === TYPE 3: SYSTEM ANALYTICS SUMMARY ===
+    // We only perform this algorithmic check once per week to avoid spamming the user.
+    const lastSpikeNotif = notifications.find(n => n.title === "Unusual Spend Spike");
+    const isRecent = lastSpikeNotif && (new Date(lastSpikeNotif.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    if (!isRecent && transactions.length > 0) {
+      const now = new Date();
+      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+      const currentWeekSpend = transactions
+        .filter(t => t.type === "debit" && new Date(t.date) >= oneWeekAgo)
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const previousWeekSpend = transactions
+        .filter(t => t.type === "debit" && new Date(t.date) >= twoWeeksAgo && new Date(t.date) < oneWeekAgo)
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      // If user spent more than ₹1000 and it's practically double the previous week:
+      if (currentWeekSpend > 1000 && currentWeekSpend > (previousWeekSpend * 2)) {
+        const anomalyNotif = {
+          user_id: userId,
+          title: "Unusual Spend Spike",
+          message: `Your spending this week (₹${currentWeekSpend.toFixed(0)}) is significantly higher than last week (₹${previousWeekSpend.toFixed(0)}).`,
+          type: "info",
+          action_url: "/dashboard/analytics",
+          is_read: false
+        };
+        
+        const { data: newNotif } = await supabase.from("notifications").insert(anomalyNotif).select().single();
+        if (newNotif) {
+          notifications = [newNotif as Notification, ...notifications];
+        }
+      }
+    }
+
     set({
-      transactions: (txRes.data ?? []) as Transaction[],
+      transactions,
       categories: (catRes.data ?? []) as Category[],
       accounts: (accRes.data ?? []) as Account[],
       budgets: (budRes.data ?? []) as Budget[],
+      recurring_transactions: (recRes.data ?? []) as RecurringTransaction[],
+      notifications,
       isLoading: false,
     });
   },
@@ -185,6 +242,70 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { data, error } = await supabase.from("transactions").insert(toInsert).select();
     if (!error && data) {
       set((s) => ({ transactions: [...(data as Transaction[]), ...s.transactions] }));
+    }
+  },
+
+  // ── Recurring Transactions ────────────────────────────────
+  addRecurringTransaction: async (rec) => {
+    const { userId } = get();
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from("recurring_transactions")
+      .insert({ ...rec, user_id: userId })
+      .select()
+      .single();
+    if (!error && data) {
+      set((s) => ({ recurring_transactions: [...s.recurring_transactions, data as RecurringTransaction] }));
+    }
+  },
+
+  updateRecurringTransaction: async (id, updates) => {
+    const { error } = await supabase.from("recurring_transactions").update(updates).eq("id", id);
+    if (!error) {
+      set((s) => ({
+        recurring_transactions: s.recurring_transactions.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+      }));
+    }
+  },
+
+  deleteRecurringTransaction: async (id) => {
+    const { error } = await supabase.from("recurring_transactions").delete().eq("id", id);
+    if (!error) {
+      set((s) => ({ recurring_transactions: s.recurring_transactions.filter((r) => r.id !== id) }));
+    }
+  },
+
+  // ── Notifications ─────────────────────────────────────────
+  addNotification: async (notif) => {
+    const { userId } = get();
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from("notifications")
+      .insert({ ...notif, user_id: userId, is_read: false })
+      .select()
+      .single();
+    if (!error && data) {
+      set((s) => ({ notifications: [data as Notification, ...s.notifications] }));
+    }
+  },
+
+  markNotificationAsRead: async (id) => {
+    const { error } = await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    if (!error) {
+      set((s) => ({
+        notifications: s.notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n)),
+      }));
+    }
+  },
+
+  markAllNotificationsAsRead: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    const { error } = await supabase.from("notifications").update({ is_read: true }).eq("user_id", userId);
+    if (!error) {
+      set((s) => ({
+        notifications: s.notifications.map((n) => ({ ...n, is_read: true })),
+      }));
     }
   },
 

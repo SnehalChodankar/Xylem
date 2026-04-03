@@ -15,12 +15,14 @@ import {
   Moon,
   Sun,
   X,
+  Repeat,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 
 const mainNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/dashboard/subscriptions", label: "Subscriptions", icon: Repeat },
   { href: "/dashboard/budgets", label: "Budgets", icon: Target },
   { href: "/dashboard/analytics", label: "Analytics", icon: PieChart },
 ];

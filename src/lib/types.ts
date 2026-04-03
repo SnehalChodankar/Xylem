@@ -92,5 +92,15 @@ export type DateRange = {
   from: Date;
   to: Date;
 };
-
 export type ViewMode = "month" | "quarter" | "year" | "custom";
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: "success" | "warning" | "info" | "error";
+  is_read: boolean;
+  action_url?: string;
+  created_at: string;
+}

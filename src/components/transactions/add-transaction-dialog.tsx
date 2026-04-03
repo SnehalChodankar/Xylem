@@ -17,7 +17,7 @@ export function AddTransactionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { categories, accounts, addTransaction } = useAppStore();
+  const { categories, accounts, budgets, getFilteredTransactions, addTransaction, addRecurringTransaction, addNotification } = useAppStore();
   const [type, setType] = useState<"debit" | "credit">("debit");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -26,6 +26,8 @@ export function AddTransactionDialog({
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [paymentMethod, setPaymentMethod] = useState("UPI");
   const [notes, setNotes] = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
   const [saving, setSaving] = useState(false);
 
   const filteredCategories = categories.filter(
@@ -40,17 +42,65 @@ export function AddTransactionDialog({
     if (!amount || !description) return;
 
     setSaving(true);
-    await addTransaction({
-      type,
-      amount: parseFloat(amount),
-      description,
-      category_id: categoryId || undefined,
-      account_id: effectiveAccountId || undefined,
-      date,
-      payment_method: paymentMethod,
-      notes: notes || undefined,
-      import_source: "manual",
-    });
+    setSaving(true);
+    
+    if (isRecurring) {
+      await addRecurringTransaction({
+        type,
+        amount: parseFloat(amount),
+        description,
+        category_id: categoryId || undefined,
+        account_id: effectiveAccountId || undefined,
+        frequency,
+        next_date: date,
+        is_active: true,
+      });
+    } else {
+      await addTransaction({
+        type,
+        amount: parseFloat(amount),
+        description,
+        category_id: categoryId || undefined,
+        account_id: effectiveAccountId || undefined,
+        date,
+        payment_method: paymentMethod,
+        notes: notes || undefined,
+        import_source: "manual",
+      });
+
+      // === TYPE 2: CONTEXTUAL NOTIFICATION TRIGGER ===
+      // Check if this expense pushed a budget past its 90% threshold!
+      if (type === "debit" && categoryId) {
+        const d = new Date(date);
+        const activeBudget = budgets.find(b => b.category_id === categoryId && b.month === d.getMonth() + 1 && b.year === d.getFullYear());
+        
+        if (activeBudget) {
+          const currentTxs = getFilteredTransactions(d.getMonth() + 1, d.getFullYear());
+          const totalSpent = currentTxs
+            .filter(t => t.type === "debit" && t.category_id === categoryId)
+            .reduce((s, t) => s + t.amount, 0);
+          
+          const threshold = activeBudget.amount * 0.9;
+          
+          if (totalSpent > activeBudget.amount) {
+            await addNotification({
+              title: "Budget Exceeded!",
+              message: `You've exceeded your ${categories.find(c => c.id === categoryId)?.name} budget for this month by ₹${(totalSpent - activeBudget.amount).toFixed(2)}.`,
+              type: "error",
+              action_url: "/dashboard/budgets"
+            });
+          } else if (totalSpent >= threshold) {
+            await addNotification({
+              title: "Approaching Budget Limit",
+              message: `You've spent ₹${totalSpent.toFixed(2)} (${((totalSpent / activeBudget.amount) * 100).toFixed(0)}%) of your ${categories.find(c => c.id === categoryId)?.name} budget.`,
+              type: "warning",
+              action_url: "/dashboard/budgets"
+            });
+          }
+        }
+      }
+    }
+    
     setSaving(false);
 
     // Reset form
@@ -58,6 +108,7 @@ export function AddTransactionDialog({
     setDescription("");
     setCategoryId("");
     setNotes("");
+    setIsRecurring(false);
     onOpenChange(false);
   };
 
@@ -134,7 +185,9 @@ export function AddTransactionDialog({
           {/* Date and Account */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="date" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date</Label>
+              <Label htmlFor="date" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                {isRecurring ? "First Billing Date" : "Date"}
+              </Label>
               <Input
                 id="date"
                 type="date"
@@ -220,6 +273,56 @@ export function AddTransactionDialog({
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
             />
+          </div>
+
+          {/* Recurring Toggle */}
+          <div className="bg-muted/50 border border-border p-4 rounded-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-bold block mb-1 text-foreground">Make this Recurring?</Label>
+                <p className="text-xs text-muted-foreground">Automatically log this on a schedule</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isRecurring}
+                onClick={() => setIsRecurring(!isRecurring)}
+                className={cn(
+                  "relative inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  isRecurring ? "bg-primary" : "bg-input"
+                )}
+              >
+                <span
+                  className={cn(
+                    "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform",
+                    isRecurring ? "translate-x-5" : "translate-x-0"
+                  )}
+                />
+              </button>
+            </div>
+
+            {isRecurring && (
+              <div className="space-y-2 pt-2 border-t border-border">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Billing Frequency</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {["daily", "weekly", "monthly", "yearly"].map((freq) => (
+                    <button
+                      key={freq}
+                      type="button"
+                      onClick={() => setFrequency(freq as any)}
+                      className={cn(
+                        "py-2 text-xs font-bold rounded-lg border transition-all capitalize",
+                        frequency === freq
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary/50"
+                      )}
+                    >
+                      {freq}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit */}
