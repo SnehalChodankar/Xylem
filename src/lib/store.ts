@@ -97,6 +97,10 @@ interface AppState {
   getMonthlyStats: (month: number, year: number) => MonthlyStats;
   getCategorySpending: (month: number, year: number) => CategorySpending[];
   getBudgetProgress: (month: number, year: number) => BudgetWithProgress[];
+  getLiveAccountBalance: (accountId: string) => number;
+
+  // ── reconciliation ──
+  reconcileAccount: (accountId: string, realBalance: number) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -450,5 +454,50 @@ export const useAppStore = create<AppState>((set, get) => ({
           category: categories.find((c) => c.id === b.category_id),
         };
       });
+  },
+
+  // ── Live Account Balance ────────────────────────────────────────────────────
+  // Computes: Opening Balance + all credits linked to account - all debits linked to account
+  getLiveAccountBalance: (accountId: string) => {
+    const { accounts, transactions } = get();
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) return 0;
+
+    const accountTxns = transactions.filter((t) => t.account_id === accountId);
+    const totalCredits = accountTxns
+      .filter((t) => t.type === "credit")
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalDebits = accountTxns
+      .filter((t) => t.type === "debit")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return account.balance + totalCredits - totalDebits;
+  },
+
+  // ── Reconciliation ─────────────────────────────────────────────────────────
+  // Creates an adjusting transaction to bridge the gap between Xylem and real bank
+  reconcileAccount: async (accountId: string, realBalance: number) => {
+    const { userId, getLiveAccountBalance, addTransaction, accounts } = get();
+    if (!userId) return;
+
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) return;
+
+    const xylemBalance = getLiveAccountBalance(accountId);
+    const discrepancy = realBalance - xylemBalance;
+
+    if (Math.abs(discrepancy) < 0.01) return; // Already in sync, nothing to do
+
+    const adjustingTxn = {
+      account_id: accountId,
+      type: discrepancy > 0 ? ("credit" as const) : ("debit" as const),
+      amount: Math.abs(discrepancy),
+      description: "Account Reconciliation Adjustment",
+      notes: `Reconciliation adjustment on ${new Date().toLocaleDateString("en-IN")}. Xylem balance: ₹${xylemBalance.toFixed(2)}, Actual bank balance: ₹${realBalance.toFixed(2)}.`,
+      date: new Date().toISOString().split("T")[0],
+      payment_method: "other",
+    };
+
+    await addTransaction(adjustingTxn);
   },
 }));

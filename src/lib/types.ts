@@ -36,11 +36,19 @@ export interface Account {
   user_id?: string;
   name: string;
   type: "bank" | "credit_card" | "cash" | "wallet" | "other";
-  balance: number;
+  balance: number; // This is the OPENING/INITIAL balance entered by the user
   icon?: string;
   color?: string;
   is_default?: boolean;
   created_at?: string;
+}
+
+export interface ReconciliationResult {
+  accountId: string;
+  accountName: string;
+  xylemBalance: number;      // Computed live balance from Xylem ledger
+  realBalance: number;       // What user types in from their actual bank
+  discrepancy: number;       // realBalance - xylemBalance
 }
 
 export interface Budget {
