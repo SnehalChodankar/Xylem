@@ -20,8 +20,9 @@ interface ParsedTransaction {
 }
 
 export default function UploadPage() {
-  const { categories, importTransactions } = useAppStore();
+  const { categories, accounts, importTransactions, categoryRules } = useAppStore();
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
+  const [importAccountId, setImportAccountId] = useState("");
   const [parsed, setParsed] = useState<ParsedTransaction[]>([]);
   const [fileName, setFileName] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -29,9 +30,17 @@ export default function UploadPage() {
 
   const autoCategorize = (desc: string): string | undefined => {
     const lower = desc.toLowerCase();
+    
+    // Priority 1: User's custom smart rules
+    for (const rule of categoryRules) {
+      if (lower.includes(rule.keyword.toLowerCase())) {
+        return rule.category_id;
+      }
+    }
+
+    // Priority 2: Built-in generic rules
     for (const rule of CATEGORY_RULES) {
-      if (lower.includes(rule.keyword)) {
-        // Find the real Supabase UUID for this category name
+      if (lower.includes(rule.keyword.toLowerCase())) {
         const cat = categories.find(
           (c) => c.name.toLowerCase() === rule.categoryName.toLowerCase()
         );
@@ -149,6 +158,7 @@ export default function UploadPage() {
         description: t.description,
         date: t.date,
         category_id: t.category_id,
+        account_id: importAccountId || undefined,
         import_source: "csv_upload" as const,
       }))
     );
@@ -199,15 +209,28 @@ export default function UploadPage() {
             <Button variant="outline" onClick={() => { setStep("upload"); setParsed([]); }} size="sm" className="rounded-xl">
               Cancel
             </Button>
-            <Button onClick={handleImport} size="sm" className="rounded-xl gap-1.5" disabled={selectedCount === 0}>
+            <Button onClick={handleImport} size="sm" className="rounded-xl gap-1.5" disabled={selectedCount === 0 || !importAccountId}>
               Import {selectedCount}
             </Button>
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toggleAll(true)} className="text-xs">Select All</Button>
-          <Button variant="outline" size="sm" onClick={() => toggleAll(false)} className="text-xs">Deselect All</Button>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 bg-muted/20 p-4 rounded-xl border border-border">
+          <div className="flex-1 w-full max-w-xs space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Target Account <span className="text-red-500">*</span></label>
+            <select
+              value={importAccountId}
+              onChange={(e) => setImportAccountId(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="" disabled className="bg-background text-foreground">Select Target Account</option>
+              {accounts.map(a => <option key={a.id} value={a.id} className="bg-background text-foreground">{a.icon} {a.name}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => toggleAll(true)} className="text-xs">Select All</Button>
+            <Button variant="outline" size="sm" onClick={() => toggleAll(false)} className="text-xs">Deselect All</Button>
+          </div>
         </div>
 
         <Card>
@@ -217,28 +240,40 @@ export default function UploadPage() {
               return (
                 <div
                   key={i}
-                  onClick={() => setParsed((p) => p.map((t, j) => j === i ? { ...t, selected: !t.selected } : t))}
                   className={cn(
-                    "flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors",
-                    txn.selected ? "bg-primary/5" : "opacity-50"
+                    "flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 transition-all",
+                    txn.selected ? "bg-primary/5 hover:bg-primary/10" : "opacity-50 grayscale hover:opacity-100"
                   )}
                 >
-                  <div className={cn(
-                    "h-5 w-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0",
-                    txn.selected ? "bg-primary border-primary" : "border-muted-foreground/30"
-                  )}>
+                  <div 
+                    onClick={() => setParsed((p) => p.map((t, j) => j === i ? { ...t, selected: !t.selected } : t))}
+                    className={cn(
+                      "cursor-pointer mt-1 sm:mt-0 h-5 w-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0",
+                      txn.selected ? "bg-primary border-primary" : "border-muted-foreground/30"
+                    )}
+                  >
                     {txn.selected && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{txn.description}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] text-muted-foreground">{txn.date}</span>
-                      {cat && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{cat.icon} {cat.name}</Badge>
-                      )}
-                      {!cat && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-amber-500 border-amber-500/30">Uncategorized</Badge>
-                      )}
+
+                  <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2 xl:gap-8 pr-2">
+                    <input 
+                      type="text" 
+                      value={txn.description} 
+                      onChange={(e) => setParsed(p => p.map((t,j) => j===i ? {...t, description: e.target.value} : t))}
+                      className="bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none text-sm font-medium w-full truncate px-1 py-0.5 transition-colors"
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground w-20 flex-shrink-0 px-1">{txn.date}</span>
+                      <select 
+                        value={txn.category_id || ""}
+                        onChange={(e) => setParsed(p => p.map((t,j) => j===i ? {...t, category_id: e.target.value || undefined} : t))}
+                        className="flex-1 bg-muted/30 border border-transparent hover:border-border text-[11px] font-medium py-1 px-1.5 focus:outline-none focus:border-primary rounded cursor-pointer w-full text-foreground/80 transition-colors"
+                      >
+                        <option value="">Uncategorized</option>
+                        {categories.map(c => (
+                          <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <span className={cn(

@@ -14,11 +14,15 @@ const EMOJI_OPTIONS = ["🍕", "🛒", "🚗", "🏠", "⚡", "🛍️", "🏥",
 const COLOR_OPTIONS = ["#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#78716c"];
 
 export default function CategoriesPage() {
-  const { categories, addCategory, updateCategory, deleteCategory } = useAppStore();
+  const { categories, addCategory, updateCategory, deleteCategory, categoryRules, addCategoryRule, deleteCategoryRule } = useAppStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", icon: "📦", color: "#3b82f6", type: "expense" as "expense" | "income" | "both" });
   const [filter, setFilter] = useState<"all" | "expense" | "income">("all");
+
+  // Rule engine form state
+  const [ruleKeyword, setRuleKeyword] = useState("");
+  const [ruleCategoryId, setRuleCategoryId] = useState("");
 
   const filtered = categories.filter((c) => filter === "all" || c.type === filter || c.type === "both");
 
@@ -41,6 +45,13 @@ export default function CategoriesPage() {
     setDialogOpen(false);
     setEditId(null);
     setForm({ name: "", icon: "📦", color: "#3b82f6", type: "expense" });
+  };
+
+  const handleAddRule = () => {
+    if (!ruleKeyword || !ruleCategoryId) return;
+    addCategoryRule({ keyword: ruleKeyword.trim(), category_id: ruleCategoryId, match_type: "contains" });
+    setRuleKeyword("");
+    setRuleCategoryId("");
   };
 
   return (
@@ -101,6 +112,65 @@ export default function CategoriesPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="mt-8 pt-8 border-t border-border">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold tracking-tight mb-1">Smart Auto-Tagging</h2>
+          <p className="text-sm text-muted-foreground">Define keywords. Any CSV import that contains these words will automatically route to the set category.</p>
+        </div>
+        
+        <Card>
+          <CardContent className="p-4 grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-3 items-end bg-muted/20">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">When description contains...</Label>
+              <Input 
+                placeholder="e.g. 'swiggy' or 'zomato'" 
+                value={ruleKeyword} 
+                onChange={(e) => setRuleKeyword(e.target.value)} 
+                className="bg-background"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assign to Category</Label>
+              <select
+                value={ruleCategoryId}
+                onChange={(e) => setRuleCategoryId(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="" disabled className="bg-background text-foreground">Select Category</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-background text-foreground">{c.icon} {c.name}</option>
+                ))}
+              </select>
+            </div>
+            <Button onClick={handleAddRule} disabled={!ruleKeyword || !ruleCategoryId}>
+              Add Rule
+            </Button>
+          </CardContent>
+        </Card>
+
+        {categoryRules.length > 0 && (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {categoryRules.map((rule) => {
+              const rootCat = categories.find(c => c.id === rule.category_id);
+              return (
+                <div key={rule.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-card shadow-sm">
+                  <div className="min-w-0 flex-1 flex flex-col">
+                    <span className="text-sm font-bold truncate">"{rule.keyword}"</span>
+                    <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Tags className="h-3 w-3" />
+                      {rootCat ? `${rootCat.icon} ${rootCat.name}` : "Unknown"}
+                    </span>
+                  </div>
+                  <button onClick={() => deleteCategoryRule(rule.id)} className="p-2 ml-2 flex-shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive rounded-lg transition-colors">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

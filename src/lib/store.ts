@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { Transaction, Category, Account, Budget, RecurringTransaction, Notification } from "./types";
+import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule } from "./types";
 import { DEFAULT_CATEGORIES } from "./demo-data";
 import { createClient } from "./supabase/client";
 
@@ -43,6 +43,7 @@ interface AppState {
   budgets: Budget[];
   recurring_transactions: RecurringTransaction[];
   notifications: Notification[];
+  categoryRules: CategoryRule[];
 
   // ── UI state ──
   selectedMonth: number;
@@ -92,6 +93,10 @@ interface AppState {
   updateBudget: (id: string, b: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
 
+  // ── actions: category rules ──
+  addCategoryRule: (rule: Omit<CategoryRule, "id" | "user_id" | "created_at">) => void;
+  deleteCategoryRule: (id: string) => void;
+
   // ── computed ──
   getFilteredTransactions: (month: number, year: number) => Transaction[];
   getMonthlyStats: (month: number, year: number) => MonthlyStats;
@@ -112,6 +117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   budgets: [],
   recurring_transactions: [],
   notifications: [],
+  categoryRules: [],
   selectedMonth: currentMonth,
   selectedYear: currentYear,
   isDarkMode: true,
@@ -127,17 +133,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!userId) return;
     set({ isLoading: true });
 
-    const [txRes, catRes, accRes, budRes, recRes, notRes] = await Promise.all([
+    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
       supabase.from("accounts").select("*").eq("user_id", userId),
       supabase.from("budgets").select("*").eq("user_id", userId),
       supabase.from("recurring_transactions").select("*").eq("user_id", userId),
       supabase.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("category_rules").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
     let notifications = (notRes.data ?? []) as Notification[];
+    const categoryRules = (ruleRes.data ?? []) as CategoryRule[];
 
     // === TYPE 3: SYSTEM ANALYTICS SUMMARY ===
     // We only perform this algorithmic check once per week to avoid spamming the user.
@@ -182,6 +190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       budgets: (budRes.data ?? []) as Budget[],
       recurring_transactions: (recRes.data ?? []) as RecurringTransaction[],
       notifications,
+      categoryRules,
       isLoading: false,
     });
   },
@@ -400,6 +409,40 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { error } = await supabase.from("budgets").delete().eq("id", id);
     if (!error) {
       set((s) => ({ budgets: s.budgets.filter((b) => b.id !== id) }));
+    }
+  },
+
+  // ── Category Rules ───────────────────────────────────────────
+  addCategoryRule: async (rule) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const newRule = {
+      ...rule,
+      user_id: userId,
+      id: crypto.randomUUID(),
+    };
+
+    // Optimistic Update
+    set((s) => ({ categoryRules: [...s.categoryRules, newRule as CategoryRule] }));
+
+    const { error } = await supabase.from("category_rules").insert(newRule);
+    if (error) {
+      // Revert on fail
+      console.error("Rule insert failed", error);
+      set((s) => ({ categoryRules: s.categoryRules.filter((r) => r.id !== newRule.id) }));
+    }
+  },
+
+  deleteCategoryRule: async (id) => {
+    // Optimistic Update
+    const oldRules = get().categoryRules;
+    set((s) => ({ categoryRules: s.categoryRules.filter((r) => r.id !== id) }));
+
+    const { error } = await supabase.from("category_rules").delete().eq("id", id);
+    if (error) {
+      console.error("Rule delete failed", error);
+      set({ categoryRules: oldRules });
     }
   },
 
