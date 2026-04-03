@@ -1,6 +1,7 @@
 "use client";
 
-import { Menu, Bell, Search, CheckCircle2, AlertCircle, Info, XCircle } from "lucide-react";
+import { useState } from "react";
+import { Menu, Bell, CheckCircle2, AlertCircle, Info, XCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAppStore } from "@/lib/store";
 import { getMonthName } from "@/lib/helpers";
@@ -26,6 +27,8 @@ export function Header() {
     markAllNotificationsAsRead
   } = useAppStore();
   const now = new Date();
+  
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
   const handlePrevMonth = () => {
     if (selectedMonth === 1) {
@@ -93,10 +96,7 @@ export function Header() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-1">
-        <button className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-          <Search className="h-[18px] w-[18px]" />
-        </button>
-        <Popover>
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           {/* @ts-expect-error - overriding shadcn strict button props for radix pass-through */}
           <PopoverTrigger asChild>
             <button className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors relative">
@@ -106,7 +106,7 @@ export function Header() {
               )}
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-[380px] p-0 overflow-hidden rounded-xl shadow-xl border-border/60">
+          <PopoverContent align="end" className="w-[380px] max-w-[calc(100vw-32px)] mx-4 sm:mx-0 p-0 overflow-hidden rounded-xl shadow-xl border-border/60">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-card/60 backdrop-blur-sm">
               <span className="font-bold tracking-tight">Notifications</span>
               {unreadCount > 0 && (
@@ -158,7 +158,12 @@ export function Header() {
                     );
 
                     return notif.action_url ? (
-                      <Link key={notif.id} href={notif.action_url} className="block">
+                      <Link 
+                        key={notif.id} 
+                        href={notif.action_url} 
+                        className="block"
+                        onClick={() => setPopoverOpen(false)}
+                      >
                         {content}
                       </Link>
                     ) : (

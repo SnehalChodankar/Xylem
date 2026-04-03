@@ -34,12 +34,9 @@ export function AddTransactionDialog({
     (c) => c.type === (type === "debit" ? "expense" : "income") || c.type === "both"
   );
 
-  // Use first available account as default when accounts load
-  const effectiveAccountId = accountId || accounts[0]?.id || "";
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || !description) return;
+    if (!amount || !description || !accountId) return;
 
     setSaving(true);
     setSaving(true);
@@ -50,7 +47,7 @@ export function AddTransactionDialog({
         amount: parseFloat(amount),
         description,
         category_id: categoryId || undefined,
-        account_id: effectiveAccountId || undefined,
+        account_id: accountId,
         frequency,
         next_date: date,
         is_active: true,
@@ -61,7 +58,7 @@ export function AddTransactionDialog({
         amount: parseFloat(amount),
         description,
         category_id: categoryId || undefined,
-        account_id: effectiveAccountId || undefined,
+        account_id: accountId,
         date,
         payment_method: paymentMethod,
         notes: notes || undefined,
@@ -199,17 +196,15 @@ export function AddTransactionDialog({
               <Label htmlFor="account" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</Label>
               <select
                 id="account"
-                value={effectiveAccountId}
+                value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                required
               >
-                {accounts.length === 0 ? (
-                  <option value="">No accounts yet</option>
-                ) : (
-                  accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-                  ))
-                )}
+                <option value="" disabled>Select Account</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -328,7 +323,7 @@ export function AddTransactionDialog({
           {/* Submit */}
           <Button
             type="submit"
-            disabled={saving || !amount || !description}
+            disabled={saving || !amount || !description || !accountId}
             className={cn(
               "w-full h-12 text-base font-semibold rounded-xl shadow-lg transition-all",
               type === "debit"

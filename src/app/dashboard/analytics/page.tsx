@@ -12,25 +12,70 @@ import {
 
 export default function AnalyticsPage() {
   const { selectedMonth, selectedYear, getMonthlyStats, getCategorySpending, transactions, categories } = useAppStore();
-  const [timeRange, setTimeRange] = useState<3 | 6 | 12>(6);
+  const [timeRange, setTimeRange] = useState<"1W" | "1M" | "3M" | "6M" | "12M">("6M");
 
-  // Monthly trend data
+  // Dynamic trend data based on timeframe
   const trendData = useMemo(() => {
     const data = [];
-    for (let i = timeRange - 1; i >= 0; i--) {
-      let m = selectedMonth - i;
-      let y = selectedYear;
-      while (m <= 0) { m += 12; y -= 1; }
-      const stats = getMonthlyStats(m, y);
-      data.push({
-        month: getMonthShort(m),
-        income: Math.round(stats.totalIncome),
-        expenses: Math.round(stats.totalExpenses),
-        savings: Math.round(stats.netSavings),
-      });
+    
+    if (timeRange === "1W") {
+      // Last 7 days ending on the current selected month
+      const endDate = new Date(selectedYear, selectedMonth, 0); 
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(endDate);
+        d.setDate(d.getDate() - i);
+        
+        const dayStr = d.toISOString().split("T")[0];
+        const dayTxns = transactions.filter(t => t.date === dayStr);
+        const income = dayTxns.filter(t => t.type === "credit").reduce((s,t) => s+t.amount, 0);
+        const expenses = dayTxns.filter(t => t.type === "debit").reduce((s,t) => s+t.amount, 0);
+        
+        data.push({
+          label: d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" }),
+          income: Math.round(income),
+          expenses: Math.round(expenses),
+          savings: Math.round(income - expenses),
+        });
+      }
+    } else if (timeRange === "1M") {
+      // 4 logical weeks of the selected month
+      const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+      for (let i = 1; i <= 4; i++) {
+        const startDay = (i - 1) * 7 + 1;
+        const endDay = i === 4 ? daysInMonth : i * 7;
+        
+        const txns = transactions.filter(t => {
+           const d = new Date(t.date);
+           return d.getMonth() + 1 === selectedMonth && d.getFullYear() === selectedYear && d.getDate() >= startDay && d.getDate() <= endDay;
+        });
+        const income = txns.filter(t => t.type === "credit").reduce((s,t) => s+t.amount, 0);
+        const expenses = txns.filter(t => t.type === "debit").reduce((s,t) => s+t.amount, 0);
+        
+        data.push({
+          label: `Week ${i}`,
+          income: Math.round(income),
+          expenses: Math.round(expenses),
+          savings: Math.round(income - expenses),
+        });
+      }
+    } else {
+      // 3M, 6M, 12M
+      const months = parseInt(timeRange.replace("M", ""));
+      for (let i = months - 1; i >= 0; i--) {
+        let m = selectedMonth - i;
+        let y = selectedYear;
+        while (m <= 0) { m += 12; y -= 1; }
+        const stats = getMonthlyStats(m, y);
+        data.push({
+          label: getMonthShort(m),
+          income: Math.round(stats.totalIncome),
+          expenses: Math.round(stats.totalExpenses),
+          savings: Math.round(stats.netSavings),
+        });
+      }
     }
     return data;
-  }, [selectedMonth, selectedYear, timeRange, getMonthlyStats]);
+  }, [selectedMonth, selectedYear, timeRange, getMonthlyStats, transactions]);
 
   // Category spending for current month
   const categoryData = getCategorySpending(selectedMonth, selectedYear);
@@ -78,7 +123,7 @@ export default function AnalyticsPage() {
           </p>
         </div>
         <div className="flex gap-1 bg-muted p-1 rounded-xl">
-          {([3, 6, 12] as const).map((r) => (
+          {(["1W", "1M", "3M", "6M", "12M"] as const).map((r) => (
             <button
               key={r}
               onClick={() => setTimeRange(r)}
@@ -87,7 +132,7 @@ export default function AnalyticsPage() {
                 timeRange === r ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
               )}
             >
-              {r}M
+              {r}
             </button>
           ))}
         </div>
@@ -97,7 +142,7 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-3 gap-3">
         <Card className="border-emerald-500/20">
           <CardContent className="p-3 text-center">
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Monthly Income</p>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Income ({timeRange})</p>
             <p className="text-base lg:text-lg font-bold text-emerald-500 mt-1">
               {formatCurrency(trendData.reduce((s, d) => s + d.income, 0) / trendData.length)}
             </p>
@@ -105,7 +150,7 @@ export default function AnalyticsPage() {
         </Card>
         <Card className="border-red-500/20">
           <CardContent className="p-3 text-center">
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Monthly Expenses</p>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Expenses ({timeRange})</p>
             <p className="text-base lg:text-lg font-bold text-red-500 mt-1">
               {formatCurrency(trendData.reduce((s, d) => s + d.expenses, 0) / trendData.length)}
             </p>
@@ -113,7 +158,7 @@ export default function AnalyticsPage() {
         </Card>
         <Card className="border-blue-500/20">
           <CardContent className="p-3 text-center">
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Savings</p>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg. Savings ({timeRange})</p>
             <p className="text-base lg:text-lg font-bold text-blue-500 mt-1">
               {formatCurrency(trendData.reduce((s, d) => s + d.savings, 0) / trendData.length)}
             </p>
@@ -136,8 +181,7 @@ export default function AnalyticsPage() {
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} width={40} />
                 <Tooltip
                   content={({ active, payload, label }) => {
