@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.xylem.tracking",
+      "sha256_cert_fingerprints": [
+        "FE:54:10:F7:8F:29:ED:BC:AB:1C:8E:C3:8D:64:17:D7:6C:71:66:30:11:52:E8:A8:E0:9B:19:93:18:EE:2E:65"
+      ]
+    }
+  }
+]

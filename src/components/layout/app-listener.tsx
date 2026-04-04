@@ -12,9 +12,11 @@ export function AppDeepLinkListener() {
     if (!Capacitor.isNativePlatform()) return;
 
     const listener = App.addListener("appUrlOpen", (event) => {
-      // Example url: com.xylem.tracking://auth/callback?code=XYZ...
+      // Example url: https://xylems.vercel.app/auth/callback?code=XYZ...
       const url = event.url;
-      const slug = url.split("com.xylem.tracking:/").pop();
+      const slug = url.includes("xylems.vercel.app") 
+        ? url.split("xylems.vercel.app").pop() 
+        : url.split("com.xylem.tracking:/").pop();
       
       if (slug) {
         // We push the URL into the Next.js router. The route handler handles the session.

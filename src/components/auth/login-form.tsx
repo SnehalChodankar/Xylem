@@ -70,7 +70,7 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
-            redirectTo: "com.xylem.tracking://auth/callback",
+            redirectTo: "https://xylems.vercel.app/auth/callback",
             skipBrowserRedirect: true,
           },
         });
