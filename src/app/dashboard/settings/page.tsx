@@ -57,7 +57,8 @@ export default function SettingsPage() {
         await Preferences.remove({ key: "xylem_session_token" });
         await Preferences.remove({ key: "xylem_user_id" });
       }
-    } catch (e) {
+    } catch (e: any) {
+      alert("Native Bridge Error: " + (e.message || JSON.stringify(e)));
       console.error("Native Bridge Error", e);
     }
   };
