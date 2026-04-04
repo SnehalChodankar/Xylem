@@ -1,26 +1,42 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Helper to determine amount and type from generic SMS texts
-function parseBankMessage(msg: string) {
+// Helper to determine amount and type from bank SMS texts
+function parseBankMessage(msg: string, sender: string = "") {
   const lowerMsg = msg.toLowerCase();
-  
+  const upperSender = sender.toUpperCase();
+
   // Is it a credit or debit?
-  const isCredit = lowerMsg.includes('credited') || lowerMsg.includes('deposited') || lowerMsg.includes('added');
-  const isDebit = lowerMsg.includes('debited') || lowerMsg.includes('spent') || lowerMsg.includes('paid') || lowerMsg.includes('withdrawn');
-  
-  if (!isCredit && !isDebit) return null;
+  const isCredit = lowerMsg.includes('credited') || lowerMsg.includes('deposited') || 
+                   lowerMsg.includes('credit') || lowerMsg.includes('added') ||
+                   lowerMsg.includes('received');
+  const isDebit = lowerMsg.includes('debited') || lowerMsg.includes('spent') || 
+                  lowerMsg.includes('paid') || lowerMsg.includes('withdrawn') ||
+                  lowerMsg.includes('debit') || lowerMsg.includes('purchase') ||
+                  lowerMsg.includes('payment of') || lowerMsg.includes('used at');
 
-  // Extract amount using Regex (INR / Rs. / Amount standard formats)
-  const amountMatch = msg.match(/(?:(?:RS|INR|Rs\.?)\s*?)([0-9,]+(?:\.[0-9]{1,2})?)/i) || 
-                      msg.match(/([0-9,]+(?:\.[0-9]{1,2})?)(?:\s*?)(?:RS|INR)/i);
-  
+  // For known bank senders, if neither keyword found, default to debit (most common)
+  const isKnownBank = upperSender.includes('BOBSMS') || upperSender.includes('HDFCBK') || 
+                      upperSender.includes('ICICIB') || upperSender.includes('SBMSMS') ||
+                      upperSender.includes('AXISBK') || upperSender.includes('KOTAKB');
+
+  if (!isCredit && !isDebit && !isKnownBank) return null;
+
+  // Extract amount — handles Rs.500, Rs 500, INR 1,000.00, INR500, ₹500
+  const amountMatch = 
+    msg.match(/(?:Rs\.?|INR|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
+    msg.match(/([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:Rs\.?|INR|₹)/i) ||
+    msg.match(/(?:amount|amt)[:\s]+(?:Rs\.?|INR|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+
   if (!amountMatch) return null;
-  
-  const amountStr = amountMatch[1].replace(/,/g, '');
-  const amount = parseFloat(amountStr);
 
-  return { type: isDebit ? 'debit' : 'credit', amount };
+  const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+  if (isNaN(amount) || amount <= 0) return null;
+
+  // For known bank senders without explicit keyword, default to debit
+  const type = isCredit ? 'credit' : 'debit';
+
+  return { type, amount };
 }
 
 export async function POST(req: Request) {
@@ -32,8 +48,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required payload fields." }, { status: 400 });
     }
 
-    // Step 1: Parse the generic bank text
-    const parsed = parseBankMessage(message);
+    // Step 1: Parse the bank SMS text
+    const parsed = parseBankMessage(message, sender);
     if (!parsed) {
       // Ignored - Not a transactional message
       return NextResponse.json({ status: "ignored_non_transaction" });
@@ -65,13 +81,12 @@ export async function POST(req: Request) {
     // Step 4: Inject directly into Transactions core
     const { data, error } = await supabase.from('transactions').insert({
       user_id: userId,
-      description: `SMS: ${sender}`, // Extracted description
-      notes: message, // Save full text in notes for auditing
+      description: `Bank SMS: ${sender}`,
+      notes: message,
       amount: parsed.amount,
       type: parsed.type,
       date: new Date().toISOString().split('T')[0],
-      category_id: assignedCategoryId,
-      import_source: "sms_tracking"
+      category_id: assignedCategoryId ?? null,
     }).select();
 
     if (error) {

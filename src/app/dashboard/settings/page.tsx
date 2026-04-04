@@ -66,6 +66,32 @@ export default function SettingsPage() {
     }
   };
 
+  const testSmsWebhook = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { alert("Not signed in."); return; }
+
+      const res = await fetch("/api/webhooks/sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: "TEST-BANK",
+          message: "INR 250.00 debited from your account. Available bal: INR 10000.00.",
+          token: session.access_token,
+          userId: session.user.id,
+        }),
+      });
+      const result = await res.json();
+      if (result.status === "success") {
+        alert("✅ Test passed! Check your transactions — a ₹250 debit should appear.");
+      } else {
+        alert("❌ Webhook error: " + JSON.stringify(result));
+      }
+    } catch (e: any) {
+      alert("❌ Test failed: " + e.message);
+    }
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push("/");
@@ -173,7 +199,15 @@ export default function SettingsPage() {
               </button>
             </div>
             {smsEnabled && (
-              <p className="text-[10px] uppercase font-bold text-emerald-500 mt-3 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Service Active</p>
+              <div className="mt-3 space-y-2">
+                <p className="text-[10px] uppercase font-bold text-emerald-500 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Service Active</p>
+                <button
+                  onClick={testSmsWebhook}
+                  className="w-full text-xs py-1.5 px-3 rounded-lg border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                >
+                  🧪 Send Test Transaction (debug)
+                </button>
+              </div>
             )}
           </CardContent>
         </Card>

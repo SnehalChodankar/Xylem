@@ -36,16 +36,20 @@ public class SmsReceiver extends BroadcastReceiver {
 
                 Log.d(TAG, "SMS received from: " + sender);
 
-                // Filter for banking keywords — broad net to catch Indian bank formats
+                // PRIMARY: Sender-based filtering — forward ALL messages from known bank senders
+                // The prefix (JD, JX, VM, etc.) rotates, so match on the constant suffix "BOBSMS"
+                boolean isKnownBankSender = sender != null && sender.toUpperCase().contains("BOBSMS");
+
+                // FALLBACK: Keyword-based filtering for other unknown senders
                 String lower = messageBody.toLowerCase();
-                boolean isBankingSms = lower.contains("debited") || lower.contains("credited")
+                boolean hasFinancialKeyword = lower.contains("debited") || lower.contains("credited")
                         || lower.contains("spent") || lower.contains("withdrawn")
                         || lower.contains("rs.") || lower.contains("rs ")
                         || lower.contains("inr") || lower.contains("payment")
                         || lower.contains("transaction") || lower.contains("transferred");
 
-                if (isBankingSms) {
-                    Log.d(TAG, "Banking SMS detected, forwarding to Xylem webhook...");
+                if (isKnownBankSender || hasFinancialKeyword) {
+                    Log.d(TAG, "Forwarding SMS — knownSender=" + isKnownBankSender + " keyword=" + hasFinancialKeyword);
                     final PendingResult pendingResult = goAsync();
                     forwardToXylemAPI(context, sender, messageBody, pendingResult);
                 }
