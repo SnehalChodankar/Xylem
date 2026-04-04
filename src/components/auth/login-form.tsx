@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Capacitor } from "@capacitor/core";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,7 +67,9 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: Capacitor.isNativePlatform() 
+          ? "https://xylems.vercel.app/auth/callback" 
+          : `${window.location.origin}/auth/callback`,
       },
     });
 

@@ -36,7 +36,8 @@ public class SmsReceiver extends BroadcastReceiver {
 
                         // Only process banking-style keywords immediately to save battery
                         if (messageBody.toLowerCase().contains("debited") || messageBody.toLowerCase().contains("credited") || messageBody.toLowerCase().contains("spent") || messageBody.toLowerCase().contains("withdrawn") || messageBody.toLowerCase().contains("rs.") || messageBody.toLowerCase().contains("inr")) {
-                            forwardToXylemAPI(context, sender, messageBody);
+                            final PendingResult pendingResult = goAsync();
+                            forwardToXylemAPI(context, sender, messageBody, pendingResult);
                         }
                     }
                 }
@@ -44,7 +45,7 @@ public class SmsReceiver extends BroadcastReceiver {
         }
     }
 
-    private void forwardToXylemAPI(Context context, String sender, String message) {
+    private void forwardToXylemAPI(Context context, String sender, String message, PendingResult pendingResult) {
         SharedPreferences prefs = context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE);
         
         // Capacitor Preferences stores objects natively as strings.
@@ -53,6 +54,7 @@ public class SmsReceiver extends BroadcastReceiver {
 
         if (token == null || userId == null) {
             Log.w(TAG, "Sync aborted. User is logged out natively or tracking disabled natively.");
+            pendingResult.finish();
             return;
         }
 
@@ -64,6 +66,8 @@ public class SmsReceiver extends BroadcastReceiver {
                 conn.setRequestProperty("Content-Type", "application/json; utf-8");
                 conn.setRequestProperty("Accept", "application/json");
                 conn.setDoOutput(true);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
 
                 JSONObject json = new JSONObject();
                 json.put("sender", sender);
@@ -83,6 +87,8 @@ public class SmsReceiver extends BroadcastReceiver {
                 conn.disconnect();
             } catch (Exception e) {
                 Log.e(TAG, "Sync failed executing payload forwarder. Server offline?", e);
+            } finally {
+                pendingResult.finish();
             }
         });
     }
