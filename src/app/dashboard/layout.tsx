@@ -30,13 +30,41 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => subscription.unsubscribe();
   }, [setUser]);
 
-  // When userId becomes available, fetch all data
+  // When userId becomes available, fetch all data and subscribe to realtime inserts
   useEffect(() => {
-    if (userId) {
-      fetchData().then(() => {
-        seedDefaultCategories();
-      });
-    }
+    if (!userId) return;
+
+    fetchData().then(() => seedDefaultCategories());
+
+    // Realtime: listen for new transactions inserted externally (e.g. SMS webhook)
+    const supabase = createClient();
+    const channel = supabase
+      .channel("realtime-transactions")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "transactions",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          // Append the new transaction to the store immediately
+          const { transactions } = useAppStore.getState();
+          const newTxn = payload.new as any;
+          // Avoid duplicates if fetchData already loaded it
+          if (!transactions.find((t) => t.id === newTxn.id)) {
+            useAppStore.setState({
+              transactions: [newTxn, ...transactions],
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userId, fetchData, seedDefaultCategories]);
 
   if (isLoading && !userId) {
