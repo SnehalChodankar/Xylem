@@ -68,12 +68,6 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
       if (Capacitor.isNativePlatform()) {
         const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
         
-        // Ensure the native SDK initializes properly to avoid force stops
-        GoogleAuth.initialize({
-          clientId: "258162601863-bgaf9t7jms91no525r7n7ub6gmi0imr9.apps.googleusercontent.com",
-          scopes: ["profile", "email"],
-        });
-
         // Trigger native Android bottom-sheet account picker
         const googleUser = await GoogleAuth.signIn();
 
