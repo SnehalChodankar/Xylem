@@ -24,37 +24,45 @@ public class SmsReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if ("android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) {
             Bundle bundle = intent.getExtras();
-            if (bundle != null) {
-                Object[] pdus = (Object[]) bundle.get("pdus");
-                if (pdus != null) {
-                    for (Object pdu : pdus) {
-                        SmsMessage smsMessage = SmsMessage.createFromPdu((byte[]) pdu);
-                        String sender = smsMessage.getDisplayOriginatingAddress();
-                        String messageBody = smsMessage.getMessageBody();
+            if (bundle == null) return;
 
-                        Log.d(TAG, "SMS intercepted securely from " + sender);
+            Object[] pdus = (Object[]) bundle.get("pdus");
+            if (pdus == null) return;
 
-                        // Only process banking-style keywords immediately to save battery
-                        if (messageBody.toLowerCase().contains("debited") || messageBody.toLowerCase().contains("credited") || messageBody.toLowerCase().contains("spent") || messageBody.toLowerCase().contains("withdrawn") || messageBody.toLowerCase().contains("rs.") || messageBody.toLowerCase().contains("inr")) {
-                            final PendingResult pendingResult = goAsync();
-                            forwardToXylemAPI(context, sender, messageBody, pendingResult);
-                        }
-                    }
+            for (Object pdu : pdus) {
+                SmsMessage smsMessage = SmsMessage.createFromPdu((byte[]) pdu);
+                String sender = smsMessage.getDisplayOriginatingAddress();
+                String messageBody = smsMessage.getMessageBody();
+
+                Log.d(TAG, "SMS received from: " + sender);
+
+                // Filter for banking keywords — broad net to catch Indian bank formats
+                String lower = messageBody.toLowerCase();
+                boolean isBankingSms = lower.contains("debited") || lower.contains("credited")
+                        || lower.contains("spent") || lower.contains("withdrawn")
+                        || lower.contains("rs.") || lower.contains("rs ")
+                        || lower.contains("inr") || lower.contains("payment")
+                        || lower.contains("transaction") || lower.contains("transferred");
+
+                if (isBankingSms) {
+                    Log.d(TAG, "Banking SMS detected, forwarding to Xylem webhook...");
+                    final PendingResult pendingResult = goAsync();
+                    forwardToXylemAPI(context, sender, messageBody, pendingResult);
                 }
             }
         }
     }
 
     private void forwardToXylemAPI(Context context, String sender, String message, PendingResult pendingResult) {
-        SharedPreferences prefs = context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE);
-        
-        // IMPORTANT: @capacitor/preferences prefixes all keys with "_cap_" in native SharedPreferences.
-        // The JS call Preferences.set({ key: "xylem_session_token" }) is actually stored as "_cap_xylem_session_token".
-        String token = prefs.getString("_cap_xylem_session_token", null);
-        String userId = prefs.getString("_cap_xylem_user_id", null);
+        // Read from the controlled SharedPreferences file written by SmsTrackerPlugin.java
+        SharedPreferences prefs = context.getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
+        String token = prefs.getString("xylem_session_token", null);
+        String userId = prefs.getString("xylem_user_id", null);
+
+        Log.d(TAG, "Token present: " + (token != null) + ", UserId present: " + (userId != null));
 
         if (token == null || userId == null) {
-            Log.w(TAG, "Sync aborted. User is logged out natively or tracking disabled natively.");
+            Log.w(TAG, "Aborting sync — no credentials stored. User must enable SMS tracking first.");
             pendingResult.finish();
             return;
         }
@@ -67,8 +75,8 @@ public class SmsReceiver extends BroadcastReceiver {
                 conn.setRequestProperty("Content-Type", "application/json; utf-8");
                 conn.setRequestProperty("Accept", "application/json");
                 conn.setDoOutput(true);
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(10000);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
 
                 JSONObject json = new JSONObject();
                 json.put("sender", sender);
@@ -76,18 +84,16 @@ public class SmsReceiver extends BroadcastReceiver {
                 json.put("token", token);
                 json.put("userId", userId);
 
-                String jsonInputString = json.toString();
-
+                byte[] input = json.toString().getBytes(StandardCharsets.UTF_8);
                 try (OutputStream os = conn.getOutputStream()) {
-                    byte[] input = jsonInputString.getBytes(StandardCharsets.UTF_8);
                     os.write(input, 0, input.length);
                 }
 
                 int code = conn.getResponseCode();
-                Log.d(TAG, "Xylem Bank Sync Status: " + code);
+                Log.d(TAG, "Webhook response code: " + code);
                 conn.disconnect();
             } catch (Exception e) {
-                Log.e(TAG, "Sync failed executing payload forwarder. Server offline?", e);
+                Log.e(TAG, "Webhook POST failed: " + e.getMessage(), e);
             } finally {
                 pendingResult.finish();
             }

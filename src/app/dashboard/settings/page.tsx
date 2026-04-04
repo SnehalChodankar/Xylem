@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Moon, Sun, Download, User, LogOut, Smartphone, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
-import { Preferences } from "@capacitor/preferences";
+
 
 export default function SettingsPage() {
   const { isDarkMode, toggleDarkMode, transactions } = useAppStore();
@@ -28,34 +28,37 @@ export default function SettingsPage() {
 
   const handleSmsToggle = async () => {
     try {
-      const { Capacitor, registerPlugin } = await import("@capacitor/core");
-      
+      const { registerPlugin } = await import("@capacitor/core");
+      const SmsTracker: any = registerPlugin("SmsTracker");
       const newState = !smsEnabled;
-      
-      if (newState) {
-        // Native OS permission request dynamically bound via the custom Java plugin
-        const SmsTracker: any = registerPlugin("SmsTracker");
-        const perms: any = await SmsTracker.requestSmsPermission();
-        
-        if (perms.granted) {
-          // Push critical authentication vectors down from WebView space into native persistent storage 
-          // allowing the dormant Android background process to act as an authenticated user
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            await Preferences.set({ key: "xylem_session_token", value: session.access_token });
-            await Preferences.set({ key: "xylem_user_id", value: session.user.id });
-          }
 
+      if (newState) {
+        // Fetch the active Supabase session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          alert("Please sign in before enabling SMS tracking.");
+          return;
+        }
+
+        // Pass token + userId DIRECTLY into the Java plugin method.
+        // The plugin writes them to Android SharedPreferences (XylemPrefs)
+        // so the background SmsReceiver can read them without any Capacitor Prefs ambiguity.
+        const perms: any = await SmsTracker.requestSmsPermission({
+          token: session.access_token,
+          userId: session.user.id,
+        });
+
+        if (perms.granted) {
           setSmsEnabled(true);
           localStorage.setItem("xylem_sms_enabled", "true");
         } else {
-          alert("SMS tracking failed. Native permission denied.");
+          alert("SMS permission denied by the OS.");
         }
       } else {
+        // Clear credentials from native storage via Java plugin
+        await SmsTracker.clearSmsCredentials();
         setSmsEnabled(false);
         localStorage.setItem("xylem_sms_enabled", "false");
-        await Preferences.remove({ key: "xylem_session_token" });
-        await Preferences.remove({ key: "xylem_user_id" });
       }
     } catch (e: any) {
       alert("Native Bridge Error: " + (e.message || JSON.stringify(e)));
