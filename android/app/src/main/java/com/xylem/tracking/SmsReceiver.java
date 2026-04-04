@@ -48,9 +48,10 @@ public class SmsReceiver extends BroadcastReceiver {
     private void forwardToXylemAPI(Context context, String sender, String message, PendingResult pendingResult) {
         SharedPreferences prefs = context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE);
         
-        // Capacitor Preferences stores objects natively as strings.
-        String token = prefs.getString("xylem_session_token", null);
-        String userId = prefs.getString("xylem_user_id", null);
+        // IMPORTANT: @capacitor/preferences prefixes all keys with "_cap_" in native SharedPreferences.
+        // The JS call Preferences.set({ key: "xylem_session_token" }) is actually stored as "_cap_xylem_session_token".
+        String token = prefs.getString("_cap_xylem_session_token", null);
+        String userId = prefs.getString("_cap_xylem_user_id", null);
 
         if (token == null || userId == null) {
             Log.w(TAG, "Sync aborted. User is logged out natively or tracking disabled natively.");
