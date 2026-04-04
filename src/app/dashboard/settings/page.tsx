@@ -6,13 +6,61 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Moon, Sun, Download, User, LogOut } from "lucide-react";
+import { Moon, Sun, Download, User, LogOut, Smartphone, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
+import { Preferences } from "@capacitor/preferences";
 
 export default function SettingsPage() {
   const { isDarkMode, toggleDarkMode, transactions } = useAppStore();
   const router = useRouter();
   const supabase = createClient();
+  const [isNative, setIsNative] = useState(false);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+
+  useEffect(() => {
+    import("@capacitor/core").then(({ Capacitor }) => {
+      setIsNative(Capacitor.isNativePlatform());
+      // In a real flow, you would ping a Capacitor plugin or local storage to see if permission was already granted previously
+      setSmsEnabled(localStorage.getItem("xylem_sms_enabled") === "true");
+    });
+  }, []);
+
+  const handleSmsToggle = async () => {
+    try {
+      const { Capacitor, registerPlugin } = await import("@capacitor/core");
+      
+      const newState = !smsEnabled;
+      
+      if (newState) {
+        // Native OS permission request dynamically bound via the custom Java plugin
+        const SmsTracker: any = registerPlugin("SmsTracker");
+        const perms: any = await SmsTracker.requestSmsPermission();
+        
+        if (perms.granted) {
+          // Push critical authentication vectors down from WebView space into native persistent storage 
+          // allowing the dormant Android background process to act as an authenticated user
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            await Preferences.set({ key: "xylem_session_token", value: session.access_token });
+            await Preferences.set({ key: "xylem_user_id", value: session.user.id });
+          }
+
+          setSmsEnabled(true);
+          localStorage.setItem("xylem_sms_enabled", "true");
+        } else {
+          alert("SMS tracking failed. Native permission denied.");
+        }
+      } else {
+        setSmsEnabled(false);
+        localStorage.setItem("xylem_sms_enabled", "false");
+        await Preferences.remove({ key: "xylem_session_token" });
+        await Preferences.remove({ key: "xylem_user_id" });
+      }
+    } catch (e) {
+      console.error("Native Bridge Error", e);
+    }
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -98,6 +146,34 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Native Capability Bridge (Only renders inside Android App runtime) */}
+      {isNative && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-primary">
+              <Smartphone className="h-4 w-4" /> Native Integration
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="flex-1 pr-4">
+                <p className="text-sm font-bold flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> SMS Auto-Tracking</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Automatically scan incoming bank SMS messages and add them directly to your ledger.</p>
+              </div>
+              <button
+                onClick={handleSmsToggle}
+                className={cn("relative h-7 w-12 rounded-full transition-colors flex-shrink-0", smsEnabled ? "bg-primary" : "bg-muted")}
+              >
+                <div className={cn("absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform", smsEnabled ? "translate-x-5" : "translate-x-0.5")} />
+              </button>
+            </div>
+            {smsEnabled && (
+              <p className="text-[10px] uppercase font-bold text-emerald-500 mt-3 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Service Active</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Data */}
       <Card>
