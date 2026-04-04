@@ -103,7 +103,10 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
         if (error) throw error;
       }
     } catch (err: any) {
-      setError(err.message || "Google Single Sign-On failed.");
+      // Expose the raw error message for debugging "Something Went Wrong"
+      const rawMsg = err?.message || JSON.stringify(err) || "Unknown native error";
+      setError(`Auth Error: ${rawMsg}`);
+      console.error("SSO Crash Details:", err);
       setLoading(false);
     }
   };
