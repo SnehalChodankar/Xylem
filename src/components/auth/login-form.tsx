@@ -64,15 +64,38 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
+        // Trigger native Android bottom-sheet account picker
+        const googleUser = await GoogleAuth.signIn();
 
-    if (error) {
-      setError(error.message);
+        if (googleUser?.authentication?.idToken) {
+          // Pass the secure native ID token to Supabase
+          const { error } = await supabase.auth.signInWithIdToken({
+            provider: "google",
+            token: googleUser.authentication.idToken,
+          });
+
+          if (error) throw error;
+          
+          router.push("/dashboard");
+          router.refresh();
+        } else {
+          throw new Error("Google login failed: No ID token returned");
+        }
+      } else {
+        // Fallback to standard web-based OAuth for browsers
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      setError(err.message || "Google Single Sign-On failed.");
       setLoading(false);
     }
   };
