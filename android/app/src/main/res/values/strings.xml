@@ -4,5 +4,4 @@
     <string name="title_activity_main">xylem-finance</string>
     <string name="package_name">com.xylem.tracking</string>
     <string name="custom_url_scheme">com.xylem.tracking</string>
-    <string name="server_client_id">258162601863-bgaf9t7jms91no525r7n7ub6gmi0imr9.apps.googleusercontent.com</string>
 </resources>

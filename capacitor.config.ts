@@ -8,12 +8,6 @@ const config: CapacitorConfig = {
     url: 'https://xylems.vercel.app',
     cleartext: true,
     allowNavigation: ["*.supabase.co", "*.google.com", "accounts.google.com"]
-  },
-  plugins: {
-    GoogleAuth: {
-      scopes: ["profile", "email"],
-      serverClientId: "258162601863-bgaf9t7jms91no525r7n7ub6gmi0imr9.apps.googleusercontent.com"
-    }
   }
 };
 

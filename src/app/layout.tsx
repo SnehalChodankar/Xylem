@@ -34,6 +34,8 @@ export const viewport: Viewport = {
   ],
 };
 
+import { AppDeepLinkListener } from "@/components/layout/app-listener";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -44,6 +46,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col antialiased selection:bg-primary/20">
         <ThemeProvider>
           <TooltipProvider>
+            <AppDeepLinkListener />
             {children}
           </TooltipProvider>
         </ThemeProvider>

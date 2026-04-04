@@ -66,24 +66,18 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
     setError(null);
     try {
       if (Capacitor.isNativePlatform()) {
-        const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
-        
-        // Trigger native Android bottom-sheet account picker
-        const googleUser = await GoogleAuth.signIn();
+        const { Browser } = await import("@capacitor/browser");
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: "com.xylem.tracking://auth/callback",
+            skipBrowserRedirect: true,
+          },
+        });
 
-        if (googleUser?.authentication?.idToken) {
-          // Pass the secure native ID token to Supabase
-          const { error } = await supabase.auth.signInWithIdToken({
-            provider: "google",
-            token: googleUser.authentication.idToken,
-          });
-
-          if (error) throw error;
-          
-          router.push("/dashboard");
-          router.refresh();
-        } else {
-          throw new Error("Google login failed: No ID token returned");
+        if (error) throw error;
+        if (data?.url) {
+          await Browser.open({ url: data.url });
         }
       } else {
         // Fallback to standard web-based OAuth for browsers
@@ -96,7 +90,7 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
         if (error) throw error;
       }
     } catch (err: any) {
-      // Expose the raw error message for debugging "Something Went Wrong"
+      // Expose the raw error message for debugging
       const rawMsg = err?.message || JSON.stringify(err) || "Unknown native error";
       setError(`Auth Error: ${rawMsg}`);
       console.error("SSO Crash Details:", err);
