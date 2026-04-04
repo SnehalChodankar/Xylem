@@ -72,7 +72,6 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
         GoogleAuth.initialize({
           clientId: "258162601863-bgaf9t7jms91no525r7n7ub6gmi0imr9.apps.googleusercontent.com",
           scopes: ["profile", "email"],
-          grantOfflineAccess: true,
         });
 
         // Trigger native Android bottom-sheet account picker
