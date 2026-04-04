@@ -25,9 +25,27 @@ export default function SettingsPage() {
   const [addingMapping, setAddingMapping] = useState(false);
 
   useEffect(() => {
-    import("@capacitor/core").then(({ Capacitor }) => {
-      setIsNative(Capacitor.isNativePlatform());
-      setSmsEnabled(localStorage.getItem("xylem_sms_enabled") === "true");
+    import("@capacitor/core").then(async ({ Capacitor, registerPlugin }) => {
+      if (Capacitor.isNativePlatform()) {
+        setIsNative(true);
+        try {
+          const SmsTracker: any = registerPlugin("SmsTracker");
+          const perms = await SmsTracker.checkPermissions();
+          const isLocalStorageEnabled = localStorage.getItem("xylem_sms_enabled") === "true";
+
+          if (perms.sms === "granted" && isLocalStorageEnabled) {
+            setSmsEnabled(true);
+          } else {
+            setSmsEnabled(false);
+            localStorage.setItem("xylem_sms_enabled", "false");
+          }
+        } catch (e) {
+          console.error("Failed to check native permissions", e);
+          setSmsEnabled(false);
+        }
+      } else {
+        setIsNative(false);
+      }
     });
   }, []);
 
