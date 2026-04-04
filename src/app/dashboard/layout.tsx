@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useAppStore } from "@/lib/store";
 import { createClient } from "@/lib/supabase/client";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { Sidebar } from "@/components/layout/sidebar";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Header } from "@/components/layout/header";
@@ -13,6 +14,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { setUser, fetchData, seedDefaultCategories, isLoading, userId } = useAppStore();
 
   useEffect(() => {
+    // Request Native Notification Permissions (required for Android 13+)
+    import("@capacitor/core").then(({ Capacitor }) => {
+      if (Capacitor.isNativePlatform()) {
+        LocalNotifications.requestPermissions().catch(console.error);
+      }
+    });
+
     const supabase = createClient();
 
     // Bootstrap: get the session, set userId, load data, and seed categories if needed

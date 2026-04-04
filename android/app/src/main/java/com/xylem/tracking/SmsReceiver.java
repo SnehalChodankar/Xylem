@@ -101,6 +101,11 @@ public class SmsReceiver extends BroadcastReceiver {
 
                 int code = conn.getResponseCode();
                 Log.d(TAG, "Webhook response code: " + code);
+
+                if (code >= 200 && code < 300) {
+                    showLocalNotification(context, sender);
+                }
+
                 conn.disconnect();
             } catch (Exception e) {
                 Log.e(TAG, "Webhook POST failed: " + e.getMessage(), e);
@@ -108,5 +113,55 @@ public class SmsReceiver extends BroadcastReceiver {
                 pendingResult.finish();
             }
         });
+    }
+
+    private void showLocalNotification(Context context, String sender) {
+        String channelId = "xylem_sms_alerts";
+        android.app.NotificationManager notificationManager = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                    channelId,
+                    "SMS Tracking Alerts",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT
+            );
+            channel.setDescription("Alerts for newly tracked bank SMS messages");
+            if (notificationManager != null) {
+                notificationManager.createNotificationChannel(channel);
+            }
+        }
+
+        // Open the app when the notification is tapped
+        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+        if (launchIntent == null) return;
+        launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        
+        int flags = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M 
+                ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE 
+                : android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+        
+        android.app.PendingIntent pendingIntent = android.app.PendingIntent.getActivity(context, 0, launchIntent, flags);
+
+        int iconResId = context.getResources().getIdentifier("ic_launcher", "mipmap", context.getPackageName());
+        if (iconResId == 0) {
+            iconResId = android.R.drawable.ic_dialog_info;
+        }
+
+        android.app.Notification.Builder builder;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            builder = new android.app.Notification.Builder(context, channelId);
+        } else {
+            builder = new android.app.Notification.Builder(context);
+        }
+
+        builder.setSmallIcon(iconResId)
+               .setContentTitle("New Transaction Staged")
+               .setContentText("A new transaction from " + sender + " is ready for your review.")
+               .setContentIntent(pendingIntent)
+               .setAutoCancel(true);
+
+        if (notificationManager != null) {
+            notificationManager.notify((int) System.currentTimeMillis(), builder.build());
+        }
     }
 }
