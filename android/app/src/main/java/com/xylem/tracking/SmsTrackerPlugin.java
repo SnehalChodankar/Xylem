@@ -8,6 +8,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 
+import com.getcapacitor.annotation.PermissionCallback;
+
 @CapacitorPlugin(
     name = "SmsTracker",
     permissions = {
@@ -33,7 +35,7 @@ public class SmsTrackerPlugin extends Plugin {
         }
     }
 
-    @PluginMethod
+    @PermissionCallback
     public void smsPermsCallback(PluginCall call) {
         if (getPermissionState("sms") == com.getcapacitor.PermissionState.GRANTED) {
             JSObject ret = new JSObject();

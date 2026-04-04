@@ -6,7 +6,8 @@ const config: CapacitorConfig = {
   webDir: 'out',
   server: {
     url: 'https://xylems.vercel.app',
-    cleartext: true
+    cleartext: true,
+    allowNavigation: ["*.supabase.co", "*.google.com", "accounts.google.com"]
   }
 };
 
