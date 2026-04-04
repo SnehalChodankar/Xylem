@@ -25,19 +25,19 @@ import com.getcapacitor.annotation.PermissionCallback;
 )
 public class SmsTrackerPlugin extends Plugin {
 
-    // Called from JS when enabling SMS tracking.
-    // Accepts token + userId directly to avoid Capacitor Preferences key-naming ambiguity.
     @PluginMethod
     public void requestSmsPermission(PluginCall call) {
         String token = call.getString("token");
         String userId = call.getString("userId");
+        // Comma-separated list of sender patterns from the user's mapping config (e.g. "BOBSMS,HDFCBK")
+        String allowedSenders = call.getString("allowedSenders", "");
 
-        // Write directly to our own known SharedPreferences file "XylemPrefs"
         if (token != null && userId != null) {
             SharedPreferences prefs = getContext().getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
             prefs.edit()
                 .putString("xylem_session_token", token)
                 .putString("xylem_user_id", userId)
+                .putString("xylem_allowed_senders", allowedSenders)
                 .apply();
         }
 
@@ -50,7 +50,6 @@ public class SmsTrackerPlugin extends Plugin {
         }
     }
 
-    // Called from JS when user disables SMS tracking - wipes stored credentials
     @PluginMethod
     public void clearSmsCredentials(PluginCall call) {
         SharedPreferences prefs = getContext().getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);

@@ -3,21 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
+import { useAppStore } from "@/lib/store";
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "#add", label: "Add", icon: Plus, isAction: true },
   { href: "/dashboard/budgets", label: "Budgets", icon: Target },
-  { href: "/dashboard/analytics", label: "Analytics", icon: PieChart },
+  { href: "/dashboard/sms-review", label: "SMS", icon: MessageSquare, isSms: true },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const [addOpen, setAddOpen] = useState(false);
+  const { smsTransactions } = useAppStore();
+  const pendingCount = smsTransactions.filter((t) => t.status === "pending").length;
 
   return (
     <>
@@ -38,7 +41,32 @@ export function BottomNav() {
                 </button>
               );
             }
+
             const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+            if (item.isSms) {
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "relative flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors min-w-[60px]",
+                    isActive ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  <div className="relative">
+                    <MessageSquare className={cn("h-5 w-5", isActive && "stroke-[2.5px]")} />
+                    {pendingCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-white px-0.5 animate-pulse">
+                        {pendingCount}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-medium">{item.label}</span>
+                </Link>
+              );
+            }
+
             return (
               <Link
                 key={item.href}

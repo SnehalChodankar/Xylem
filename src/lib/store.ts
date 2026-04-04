@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule } from "./types";
+import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule, SmsTransaction, SmsSenderMapping } from "./types";
 import { DEFAULT_CATEGORIES } from "./demo-data";
 import { createClient } from "./supabase/client";
 
@@ -44,6 +44,8 @@ interface AppState {
   recurring_transactions: RecurringTransaction[];
   notifications: Notification[];
   categoryRules: CategoryRule[];
+  smsTransactions: SmsTransaction[];
+  smsSenderMappings: SmsSenderMapping[];
 
   // ── UI state ──
   selectedMonth: number;
@@ -97,6 +99,12 @@ interface AppState {
   addCategoryRule: (rule: Omit<CategoryRule, "id" | "user_id" | "created_at">) => void;
   deleteCategoryRule: (id: string) => void;
 
+  // ── actions: SMS staging ──
+  approveSmsTransaction: (id: string, edits: Partial<SmsTransaction>) => Promise<void>;
+  rejectSmsTransaction: (id: string) => Promise<void>;
+  addSmsSenderMapping: (m: Omit<SmsSenderMapping, "id" | "user_id" | "created_at">) => Promise<void>;
+  deleteSmsSenderMapping: (id: string) => Promise<void>;
+
   // ── computed ──
   getFilteredTransactions: (month: number, year: number) => Transaction[];
   getMonthlyStats: (month: number, year: number) => MonthlyStats;
@@ -118,6 +126,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   recurring_transactions: [],
   notifications: [],
   categoryRules: [],
+  smsTransactions: [],
+  smsSenderMappings: [],
   selectedMonth: currentMonth,
   selectedYear: currentYear,
   isDarkMode: true,
@@ -133,7 +143,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!userId) return;
     set({ isLoading: true });
 
-    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes] = await Promise.all([
+    // Cleanup: delete rejected SMS transactions older than 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    supabase.from("sms_transactions").delete()
+      .eq("user_id", userId).eq("status", "rejected").lt("created_at", thirtyDaysAgo);
+
+    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes, smsRes, mappingRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
       supabase.from("accounts").select("*").eq("user_id", userId),
@@ -141,11 +156,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       supabase.from("recurring_transactions").select("*").eq("user_id", userId),
       supabase.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
       supabase.from("category_rules").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+      supabase.from("sms_transactions").select("*").eq("user_id", userId).neq("status", "approved").order("created_at", { ascending: false }),
+      supabase.from("sms_sender_mappings").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
     let notifications = (notRes.data ?? []) as Notification[];
     const categoryRules = (ruleRes.data ?? []) as CategoryRule[];
+    const smsTransactions = (smsRes.data ?? []) as SmsTransaction[];
+    const smsSenderMappings = (mappingRes.data ?? []) as SmsSenderMapping[];
 
     // === TYPE 3: SYSTEM ANALYTICS SUMMARY ===
     // We only perform this algorithmic check once per week to avoid spamming the user.
@@ -191,6 +210,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       recurring_transactions: (recRes.data ?? []) as RecurringTransaction[],
       notifications,
       categoryRules,
+      smsTransactions,
+      smsSenderMappings,
       isLoading: false,
     });
   },
@@ -435,15 +456,74 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteCategoryRule: async (id) => {
-    // Optimistic Update
     const oldRules = get().categoryRules;
     set((s) => ({ categoryRules: s.categoryRules.filter((r) => r.id !== id) }));
-
     const { error } = await supabase.from("category_rules").delete().eq("id", id);
     if (error) {
       console.error("Rule delete failed", error);
       set({ categoryRules: oldRules });
     }
+  },
+
+  // ── SMS Staging ───────────────────────────────────────────
+  approveSmsTransaction: async (id, edits) => {
+    const { userId, smsTransactions } = get();
+    if (!userId) return;
+    const staged = smsTransactions.find((s) => s.id === id);
+    if (!staged) return;
+
+    const merged = { ...staged, ...edits };
+
+    // Insert into live transactions
+    const { data, error } = await supabase.from("transactions").insert({
+      user_id: userId,
+      description: merged.description,
+      amount: merged.amount,
+      type: merged.type,
+      date: merged.date,
+      account_id: merged.account_id ?? null,
+      category_id: merged.category_id ?? null,
+      notes: merged.raw_message,
+    }).select().single();
+
+    if (error) { console.error("Approve SMS failed", error); return; }
+
+    // Mark as approved in staging table
+    await supabase.from("sms_transactions").update({ status: "approved" }).eq("id", id);
+
+    // Update local state
+    set((s) => ({
+      transactions: [data as Transaction, ...s.transactions],
+      smsTransactions: s.smsTransactions.map((t) =>
+        t.id === id ? { ...t, status: "approved" as const } : t
+      ),
+    }));
+  },
+
+  rejectSmsTransaction: async (id) => {
+    await supabase.from("sms_transactions").update({ status: "rejected" }).eq("id", id);
+    set((s) => ({
+      smsTransactions: s.smsTransactions.map((t) =>
+        t.id === id ? { ...t, status: "rejected" as const } : t
+      ),
+    }));
+  },
+
+  addSmsSenderMapping: async (mapping) => {
+    const { userId } = get();
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from("sms_sender_mappings")
+      .insert({ ...mapping, user_id: userId })
+      .select().single();
+    if (!error && data) {
+      set((s) => ({ smsSenderMappings: [...s.smsSenderMappings, data as SmsSenderMapping] }));
+    }
+  },
+
+  deleteSmsSenderMapping: async (id) => {
+    await supabase.from("sms_sender_mappings").delete().eq("id", id);
+    set((s) => ({ smsSenderMappings: s.smsSenderMappings.filter((m) => m.id !== id) }));
   },
 
   // ── Computed ──────────────────────────────────────────────

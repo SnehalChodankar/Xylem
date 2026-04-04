@@ -112,3 +112,27 @@ export interface Notification {
   action_url?: string;
   created_at: string;
 }
+
+export interface SmsTransaction {
+  id: string;
+  user_id?: string;
+  sender: string;
+  raw_message: string;
+  amount: number;
+  type: "debit" | "credit";
+  description: string;
+  account_id?: string | null;
+  category_id?: string | null;
+  status: "pending" | "approved" | "rejected";
+  date: string;
+  created_at?: string;
+}
+
+export interface SmsSenderMapping {
+  id: string;
+  user_id?: string;
+  sender_pattern: string;
+  account_id?: string | null;
+  label?: string;
+  created_at?: string;
+}

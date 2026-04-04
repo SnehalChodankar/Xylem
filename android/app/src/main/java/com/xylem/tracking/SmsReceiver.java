@@ -22,43 +22,49 @@ public class SmsReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if ("android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) {
-            Bundle bundle = intent.getExtras();
-            if (bundle == null) return;
+        if (!"android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) return;
 
-            Object[] pdus = (Object[]) bundle.get("pdus");
-            if (pdus == null) return;
+        Bundle bundle = intent.getExtras();
+        if (bundle == null) return;
 
-            for (Object pdu : pdus) {
-                SmsMessage smsMessage = SmsMessage.createFromPdu((byte[]) pdu);
-                String sender = smsMessage.getDisplayOriginatingAddress();
-                String messageBody = smsMessage.getMessageBody();
+        Object[] pdus = (Object[]) bundle.get("pdus");
+        if (pdus == null) return;
 
-                Log.d(TAG, "SMS received from: " + sender);
+        // Read user-configured allowed sender patterns from XylemPrefs (set by SmsTrackerPlugin)
+        SharedPreferences prefs = context.getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
+        String allowedSendersStr = prefs.getString("xylem_allowed_senders", "");
 
-                // PRIMARY: Sender-based filtering — forward ALL messages from known bank senders
-                // The prefix (JD, JX, VM, etc.) rotates, so match on the constant suffix "BOBSMS"
-                boolean isKnownBankSender = sender != null && sender.toUpperCase().contains("BOBSMS");
+        for (Object pdu : pdus) {
+            SmsMessage smsMessage = SmsMessage.createFromPdu((byte[]) pdu);
+            String sender = smsMessage.getDisplayOriginatingAddress();
+            String messageBody = smsMessage.getMessageBody();
 
-                // FALLBACK: Keyword-based filtering for other unknown senders
-                String lower = messageBody.toLowerCase();
-                boolean hasFinancialKeyword = lower.contains("debited") || lower.contains("credited")
-                        || lower.contains("spent") || lower.contains("withdrawn")
-                        || lower.contains("rs.") || lower.contains("rs ")
-                        || lower.contains("inr") || lower.contains("payment")
-                        || lower.contains("transaction") || lower.contains("transferred");
+            Log.d(TAG, "SMS received from: " + sender);
 
-                if (isKnownBankSender || hasFinancialKeyword) {
-                    Log.d(TAG, "Forwarding SMS — knownSender=" + isKnownBankSender + " keyword=" + hasFinancialKeyword);
-                    final PendingResult pendingResult = goAsync();
-                    forwardToXylemAPI(context, sender, messageBody, pendingResult);
+            // Only forward SMS from user-configured allowed senders
+            boolean isAllowedSender = false;
+            if (sender != null && !allowedSendersStr.isEmpty()) {
+                String upperSender = sender.toUpperCase();
+                for (String pattern : allowedSendersStr.split(",")) {
+                    if (!pattern.trim().isEmpty() && upperSender.contains(pattern.trim().toUpperCase())) {
+                        isAllowedSender = true;
+                        break;
+                    }
                 }
             }
+
+            if (!isAllowedSender) {
+                Log.d(TAG, "Sender not in allowed list, skipping: " + sender);
+                continue;
+            }
+
+            Log.d(TAG, "Allowed sender matched: " + sender + " — forwarding to Xylem webhook");
+            final PendingResult pendingResult = goAsync();
+            forwardToXylemAPI(context, sender, messageBody, pendingResult);
         }
     }
 
     private void forwardToXylemAPI(Context context, String sender, String message, PendingResult pendingResult) {
-        // Read from the controlled SharedPreferences file written by SmsTrackerPlugin.java
         SharedPreferences prefs = context.getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
         String token = prefs.getString("xylem_session_token", null);
         String userId = prefs.getString("xylem_user_id", null);
@@ -66,7 +72,7 @@ public class SmsReceiver extends BroadcastReceiver {
         Log.d(TAG, "Token present: " + (token != null) + ", UserId present: " + (userId != null));
 
         if (token == null || userId == null) {
-            Log.w(TAG, "Aborting sync — no credentials stored. User must enable SMS tracking first.");
+            Log.w(TAG, "Aborting — no credentials stored. Re-enable SMS tracking in Settings.");
             pendingResult.finish();
             return;
         }

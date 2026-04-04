@@ -1,29 +1,25 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Helper to determine amount and type from bank SMS texts
 function parseBankMessage(msg: string, sender: string = "") {
   const lowerMsg = msg.toLowerCase();
   const upperSender = sender.toUpperCase();
 
-  // Is it a credit or debit?
-  const isCredit = lowerMsg.includes('credited') || lowerMsg.includes('deposited') || 
+  const isCredit = lowerMsg.includes('credited') || lowerMsg.includes('deposited') ||
                    lowerMsg.includes('credit') || lowerMsg.includes('added') ||
                    lowerMsg.includes('received');
-  const isDebit = lowerMsg.includes('debited') || lowerMsg.includes('spent') || 
+  const isDebit = lowerMsg.includes('debited') || lowerMsg.includes('spent') ||
                   lowerMsg.includes('paid') || lowerMsg.includes('withdrawn') ||
                   lowerMsg.includes('debit') || lowerMsg.includes('purchase') ||
                   lowerMsg.includes('payment of') || lowerMsg.includes('used at');
 
-  // For known bank senders, if neither keyword found, default to debit (most common)
-  const isKnownBank = upperSender.includes('BOBSMS') || upperSender.includes('HDFCBK') || 
-                      upperSender.includes('ICICIB') || upperSender.includes('SBMSMS') ||
-                      upperSender.includes('AXISBK') || upperSender.includes('KOTAKB');
+  // For known bank sender patterns, default to debit if no keyword matches
+  const isKnownBank = upperSender.includes('SMS') || upperSender.includes('BNK') ||
+                      upperSender.includes('BK') || upperSender.includes('BANK');
 
   if (!isCredit && !isDebit && !isKnownBank) return null;
 
-  // Extract amount — handles Rs.500, Rs 500, INR 1,000.00, INR500, ₹500
-  const amountMatch = 
+  const amountMatch =
     msg.match(/(?:Rs\.?|INR|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i) ||
     msg.match(/([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:Rs\.?|INR|₹)/i) ||
     msg.match(/(?:amount|amt)[:\s]+(?:Rs\.?|INR|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
@@ -33,10 +29,22 @@ function parseBankMessage(msg: string, sender: string = "") {
   const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
   if (isNaN(amount) || amount <= 0) return null;
 
-  // For known bank senders without explicit keyword, default to debit
   const type = isCredit ? 'credit' : 'debit';
-
   return { type, amount };
+}
+
+// Generate a human-readable description from the SMS body
+function generateDescription(msg: string, type: string): string {
+  // Try to extract merchant name or purpose from common patterns
+  const merchantMatch =
+    msg.match(/(?:at|to|for|towards)\s+([A-Za-z0-9\s&'-]{3,30}?)(?:\s+on|\s+via|\s+ref|\.|,|$)/i);
+  if (merchantMatch) {
+    const merchant = merchantMatch[1].trim();
+    if (merchant.length > 2) {
+      return type === 'debit' ? `Payment to ${merchant}` : `Received from ${merchant}`;
+    }
+  }
+  return type === 'debit' ? 'Bank Debit' : 'Bank Credit';
 }
 
 export async function POST(req: Request) {
@@ -48,26 +56,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required payload fields." }, { status: 400 });
     }
 
-    // Step 1: Parse the bank SMS text
     const parsed = parseBankMessage(message, sender);
     if (!parsed) {
-      // Ignored - Not a transactional message
       return NextResponse.json({ status: "ignored_non_transaction" });
     }
 
-    // Step 2: Initialize Supabase explicitly binding the User's JWT to bypass RLS failures cleanly
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: `Bearer ${token}` } }
     });
 
-    // Step 3: Fetch Rules Engine to Auto-Categorize
-    const { data: rules } = await supabase.from('category_rules').select('*').eq('user_id', userId);
-    
-    let assignedCategoryId = undefined;
+    // Auto-assign account via sender mappings
+    const { data: mappings } = await supabase
+      .from('sms_sender_mappings')
+      .select('*')
+      .eq('user_id', userId);
 
+    let assignedAccountId: string | null = null;
+    if (mappings) {
+      const upperSender = sender.toUpperCase();
+      const match = mappings.find((m: any) =>
+        upperSender.includes(m.sender_pattern.toUpperCase())
+      );
+      if (match) assignedAccountId = match.account_id;
+    }
+
+    // Auto-assign category via keyword rules
+    const { data: rules } = await supabase
+      .from('category_rules')
+      .select('*')
+      .eq('user_id', userId);
+
+    let assignedCategoryId: string | null = null;
     if (rules) {
       const lowerMessage = message.toLowerCase();
       for (const rule of rules) {
@@ -78,19 +99,24 @@ export async function POST(req: Request) {
       }
     }
 
-    // Step 4: Inject directly into Transactions core
-    const { data, error } = await supabase.from('transactions').insert({
+    const description = generateDescription(message, parsed.type);
+
+    // Insert into sms_transactions staging table (NOT transactions directly)
+    const { data, error } = await supabase.from('sms_transactions').insert({
       user_id: userId,
-      description: `Bank SMS: ${sender}`,
-      notes: message,
+      sender,
+      raw_message: message,
       amount: parsed.amount,
       type: parsed.type,
+      description,
+      account_id: assignedAccountId,
+      category_id: assignedCategoryId,
+      status: 'pending',
       date: new Date().toISOString().split('T')[0],
-      category_id: assignedCategoryId ?? null,
     }).select();
 
     if (error) {
-      console.error("Supabase SMS Insert Error:", error);
+      console.error("Supabase SMS staging insert error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

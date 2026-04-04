@@ -16,6 +16,7 @@ import {
   Sun,
   X,
   Repeat,
+  MessageSquare,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 
@@ -36,7 +37,8 @@ const secondaryNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { isDarkMode, toggleDarkMode, sidebarOpen, setSidebarOpen } = useAppStore();
+  const { isDarkMode, toggleDarkMode, sidebarOpen, setSidebarOpen, smsTransactions } = useAppStore();
+  const pendingCount = smsTransactions.filter((t) => t.status === "pending").length;
 
   return (
     <>
@@ -124,6 +126,26 @@ export function Sidebar() {
               </Link>
             );
           })}
+
+          {/* SMS Review — only shows when there are pending items */}
+          <Link
+            href="/dashboard/sms-review"
+            onClick={() => setSidebarOpen(false)}
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+              pathname === "/dashboard/sms-review"
+                ? "bg-primary text-primary-foreground shadow-md"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            )}
+          >
+            <MessageSquare className="h-[18px] w-[18px]" />
+            SMS Review
+            {pendingCount > 0 && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white px-1 animate-pulse">
+                {pendingCount}
+              </span>
+            )}
+          </Link>
         </nav>
 
         {/* Footer */}
