@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { createClient } from "@/lib/supabase/client";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -13,6 +14,8 @@ import { Loader2 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { setUser, fetchData, seedDefaultCategories, isLoading, userId } = useAppStore();
+  const router = useRouter();
+  const authCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Request Native Notification Permissions (required for Android 13+)
@@ -21,27 +24,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     const supabase = createClient();
+    let resolved = false;
 
-    // Use getSession() — reads from the cookie/localStorage instantly.
-    // This is synchronous and does NOT make a network round-trip to Supabase.
-    // Critical: DO NOT use getUser() here. getUser() makes a live network call
-    // which causes a race where userId is null for ~500ms, breaking data loading.
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const bootstrap = async () => {
+      // getSession() reads from the cookie/localStorage — no network call needed.
+      // This resolves IMMEDIATELY even with no internet connection.
+      const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        resolved = true;
         setUser(session.user.id);
+        return;
+      }
+
+      // No session found yet. On native, the network may not be ready immediately
+      // after the app wakes. Wait up to 5 seconds before redirecting to login.
+      if (Capacitor.isNativePlatform()) {
+        authCheckTimer.current = setTimeout(() => {
+          if (!resolved) {
+            // Still no session after 5 seconds — genuinely unauthenticated.
+            router.push("/");
+          }
+        }, 5000);
+      } else {
+        // On web, redirect immediately.
+        router.push("/");
+      }
+    };
+
+    bootstrap();
+
+    // Listen for auth state changes.
+    // onAuthStateChange fires when a session is established (e.g., token refresh completes).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        resolved = true;
+        // Clear the fallback redirect timer — user IS authenticated.
+        if (authCheckTimer.current) clearTimeout(authCheckTimer.current);
+        setUser(session.user.id);
+      } else {
+        setUser(null);
       }
     });
 
-    // Listen for future auth state changes (token refresh, sign out).
-    // NOTE: We do NOT persist tokens to Capacitor Preferences here because the
-    // server-side middleware relies on the HTTP cookie set by /auth/callback,
-    // which lives in the WebView cookie jar and persists across restarts natively.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user?.id ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [setUser]);
+    return () => {
+      subscription.unsubscribe();
+      if (authCheckTimer.current) clearTimeout(authCheckTimer.current);
+    };
+  }, [setUser, router]);
 
   useEffect(() => {
     if (!userId) return;

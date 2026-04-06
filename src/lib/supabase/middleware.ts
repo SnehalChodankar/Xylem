@@ -23,36 +23,49 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Use getSession() not getUser() here.
+  // Silently refresh the session token if it's expired.
+  // We intentionally do NOT redirect here based on auth state.
   //
-  // getUser() validates the token against the Supabase Auth server on EVERY
-  // request. In a Capacitor app, this means every page navigation makes a
-  // remote network call. When:
-  //   - The user opens the app without network (subway, flight mode)
-  //   - The 1-hour access token has expired (common for background apps)
-  //   - Supabase Auth server is slow or unavailable
-  // ...getUser() returns null and the user is kicked to the login screen.
+  // REASON: This app runs inside a Capacitor WebView on Android. When Android
+  // wakes the app from a background state, the network connection is not always
+  // immediately available. If we redirect to /login here when getSession() fails
+  // due to a network timeout, the user gets kicked out even though they ARE
+  // authenticated — their token just couldn't refresh yet.
   //
-  // getSession() decodes the JWT locally from the cookie — no network call.
-  // The @supabase/ssr cookie adapter already handles refresh token rotation
-  // automatically via the setAll() handler above. So the user stays logged in
-  // as long as their refresh token is valid (typically 60 days).
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user ?? null
+  // Auth-based redirects are handled client-side in dashboard/layout.tsx where
+  // we can wait for the network and retry gracefully.
+  try {
+    await supabase.auth.getSession()
+  } catch {
+    // Silently ignore — the response still goes through unchanged.
+    // Client-side auth guard will handle unauthenticated users.
+  }
 
   const isAuthRoute = request.nextUrl.pathname === '/'
   const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
 
-  if (isDashboardRoute && !user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
-  }
+  // Only enforce redirects on the web browser (non-Capacitor) by checking
+  // for the absence of a native user-agent. For the Capacitor WebView, we
+  // pass all requests through and let the client handle auth.
+  const userAgent = request.headers.get('user-agent') ?? ''
+  const isCapacitorWebView = userAgent.includes('wv') && userAgent.includes('Android')
 
-  if (isAuthRoute && user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+  if (!isCapacitorWebView) {
+    // Standard web browser: enforce server-side auth redirects
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user ?? null
+
+    if (isDashboardRoute && !user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
+
+    if (isAuthRoute && user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse
