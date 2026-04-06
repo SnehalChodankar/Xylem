@@ -22,65 +22,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     const supabase = createClient();
 
-    const bootstrap = async () => {
-      // STEP 1 (Native only): Restore the session from Capacitor Preferences FIRST.
-      // This prevents the race condition where Android kills the WebView process and
-      // wipes localStorage. We persist tokens natively and restore them on every open.
-      if (Capacitor.isNativePlatform()) {
-        try {
-          const { Preferences } = await import("@capacitor/preferences");
-          const { value: accessToken } = await Preferences.get({ key: "sb_access_token" });
-          const { value: refreshToken } = await Preferences.get({ key: "sb_refresh_token" });
-
-          if (accessToken && refreshToken) {
-            // Rehydrate the supabase client with the stored tokens.
-            // This is synchronous and instant — no network round-trip.
-            await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-          }
-        } catch (e) {
-          console.warn("Could not restore session from Preferences:", e);
-        }
-      }
-
-      // STEP 2: Use getSession() — reads from local storage instantly (no network).
-      // NEVER use getUser() here. getUser() makes a live network call which causes
-      // a race condition: userId is null for 500-800ms, triggering a redirect to /login.
-      const { data: { session } } = await supabase.auth.getSession();
+    // Use getSession() — reads from the cookie/localStorage instantly.
+    // This is synchronous and does NOT make a network round-trip to Supabase.
+    // Critical: DO NOT use getUser() here. getUser() makes a live network call
+    // which causes a race where userId is null for ~500ms, breaking data loading.
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user.id);
       }
-    };
+    });
 
-    bootstrap();
-
-    // Listen for future auth state changes (e.g., token refresh, sign out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Listen for future auth state changes (token refresh, sign out).
+    // NOTE: We do NOT persist tokens to Capacitor Preferences here because the
+    // server-side middleware relies on the HTTP cookie set by /auth/callback,
+    // which lives in the WebView cookie jar and persists across restarts natively.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user?.id ?? null);
-
-      // Whenever the session updates on a native device, persist the new tokens
-      if (Capacitor.isNativePlatform() && session) {
-        try {
-          const { Preferences } = await import("@capacitor/preferences");
-          await Preferences.set({ key: "sb_access_token", value: session.access_token });
-          await Preferences.set({ key: "sb_refresh_token", value: session.refresh_token });
-        } catch (e) {
-          console.warn("Could not persist session tokens:", e);
-        }
-      }
-
-      // Clear tokens on sign out
-      if (Capacitor.isNativePlatform() && !session) {
-        try {
-          const { Preferences } = await import("@capacitor/preferences");
-          await Preferences.remove({ key: "sb_access_token" });
-          await Preferences.remove({ key: "sb_refresh_token" });
-        } catch (e) {
-          console.warn("Could not clear session tokens:", e);
-        }
-      }
     });
 
     return () => subscription.unsubscribe();

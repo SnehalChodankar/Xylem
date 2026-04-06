@@ -23,7 +23,22 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // IMPORTANT: Use getSession() not getUser() here.
+  //
+  // getUser() validates the token against the Supabase Auth server on EVERY
+  // request. In a Capacitor app, this means every page navigation makes a
+  // remote network call. When:
+  //   - The user opens the app without network (subway, flight mode)
+  //   - The 1-hour access token has expired (common for background apps)
+  //   - Supabase Auth server is slow or unavailable
+  // ...getUser() returns null and the user is kicked to the login screen.
+  //
+  // getSession() decodes the JWT locally from the cookie — no network call.
+  // The @supabase/ssr cookie adapter already handles refresh token rotation
+  // automatically via the setAll() handler above. So the user stays logged in
+  // as long as their refresh token is valid (typically 60 days).
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user ?? null
 
   const isAuthRoute = request.nextUrl.pathname === '/'
   const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
