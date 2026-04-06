@@ -11,24 +11,19 @@ export function AppDeepLinkListener() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const listener = App.addListener("appUrlOpen", async (event) => {
+    const listener = App.addListener("appUrlOpen", (event) => {
       // Example url: https://xylems.vercel.app/auth/callback?code=XYZ...
       const url = event.url;
-      const slug = url.includes("xylems.vercel.app")
-        ? url.split("xylems.vercel.app").pop()
+      const slug = url.includes("xylems.vercel.app") 
+        ? url.split("xylems.vercel.app").pop() 
         : url.split("com.xylem.tracking:/").pop();
-
+      
       if (slug) {
-        // Close the Chrome Custom Tab overlay
+        // We push the URL into the Next.js router. The route handler handles the session.
         import("@capacitor/browser").then(({ Browser }) => {
           Browser.close().catch(console.error);
         });
-
-        // Push the callback URL into Next.js router.
-        // The /auth/callback route handler calls exchangeCodeForSession() on the
-        // server, which sets the Supabase auth cookie in the WebView's cookie jar.
-        // That cookie is natively persistent across app restarts — no extra
-        // token storage is needed.
+        
         router.push(slug);
       }
     });
