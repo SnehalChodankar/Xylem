@@ -8,17 +8,30 @@ import android.os.Bundle;
 import android.telephony.SmsMessage;
 import android.util.Log;
 
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import org.json.JSONObject;
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.Data;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
 
+import java.util.concurrent.TimeUnit;
+
+/**
+ * SmsReceiver: A BroadcastReceiver that wakes up when an SMS arrives.
+ *
+ * Its ONLY job is to:
+ *  1. Check if the sender is in the user's allowed list.
+ *  2. Enqueue a WorkManager task (SmsWorker) with the SMS data.
+ *
+ * The actual network call is handled by SmsWorker, which:
+ *  - Runs with no time limit (unlike goAsync() which only allows 10 seconds)
+ *  - Retries automatically on network failures with exponential backoff
+ *  - Survives Android Doze mode and process kills
+ *  - Requires a CONNECTED network before it even tries
+ */
 public class SmsReceiver extends BroadcastReceiver {
     private static final String TAG = "SmsReceiver";
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -30,7 +43,7 @@ public class SmsReceiver extends BroadcastReceiver {
         Object[] pdus = (Object[]) bundle.get("pdus");
         if (pdus == null) return;
 
-        // Read user-configured allowed sender patterns from XylemPrefs (set by SmsTrackerPlugin)
+        // Read user-configured allowed sender patterns from XylemPrefs
         SharedPreferences prefs = context.getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
         String allowedSendersStr = prefs.getString("xylem_allowed_senders", "");
 
@@ -41,7 +54,7 @@ public class SmsReceiver extends BroadcastReceiver {
 
             Log.d(TAG, "SMS received from: " + sender);
 
-            // Only forward SMS from user-configured allowed senders
+            // Filter: only forward SMS from the user-configured allowed senders list
             boolean isAllowedSender = false;
             if (sender != null && !allowedSendersStr.isEmpty()) {
                 String upperSender = sender.toUpperCase();
@@ -58,110 +71,34 @@ public class SmsReceiver extends BroadcastReceiver {
                 continue;
             }
 
-            Log.d(TAG, "Allowed sender matched: " + sender + " — forwarding to Xylem webhook");
-            final PendingResult pendingResult = goAsync();
-            forwardToXylemAPI(context, sender, messageBody, pendingResult);
-        }
-    }
+            Log.d(TAG, "Allowed sender matched: " + sender + " — enqueuing WorkManager job.");
 
-    private void forwardToXylemAPI(Context context, String sender, String message, PendingResult pendingResult) {
-        SharedPreferences prefs = context.getSharedPreferences("XylemPrefs", Context.MODE_PRIVATE);
-        String token = prefs.getString("xylem_session_token", null);
-        String userId = prefs.getString("xylem_user_id", null);
+            // Package the SMS data into a WorkManager Data object
+            Data inputData = new Data.Builder()
+                    .putString(SmsWorker.KEY_SENDER, sender)
+                    .putString(SmsWorker.KEY_MESSAGE, messageBody)
+                    .build();
 
-        Log.d(TAG, "Token present: " + (token != null) + ", UserId present: " + (userId != null));
+            // Require a CONNECTED network before the worker runs.
+            // WorkManager will queue the job and wait for connectivity automatically.
+            Constraints constraints = new Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build();
 
-        if (token == null || userId == null) {
-            Log.w(TAG, "Aborting — no credentials stored. Re-enable SMS tracking in Settings.");
-            pendingResult.finish();
-            return;
-        }
+            // Build the work request with exponential backoff starting at 30 seconds.
+            // If SmsWorker returns Result.retry(), WorkManager will retry at:
+            // 30s → 1m → 2m → 4m → 8m… (up to a max of 5 hours)
+            OneTimeWorkRequest smsWork = new OneTimeWorkRequest.Builder(SmsWorker.class)
+                    .setInputData(inputData)
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build();
 
-        executor.execute(() -> {
-            try {
-                URL url = new URL("https://xylems.vercel.app/api/webhooks/sms");
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json; utf-8");
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setDoOutput(true);
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(15000);
+            // Enqueue the work. WorkManager persists this to disk — it will
+            // survive even if the app process is killed before the job runs.
+            WorkManager.getInstance(context).enqueue(smsWork);
 
-                JSONObject json = new JSONObject();
-                json.put("sender", sender);
-                json.put("message", message);
-                json.put("token", token);
-                json.put("userId", userId);
-
-                byte[] input = json.toString().getBytes(StandardCharsets.UTF_8);
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(input, 0, input.length);
-                }
-
-                int code = conn.getResponseCode();
-                Log.d(TAG, "Webhook response code: " + code);
-
-                if (code >= 200 && code < 300) {
-                    showLocalNotification(context, sender);
-                }
-
-                conn.disconnect();
-            } catch (Exception e) {
-                Log.e(TAG, "Webhook POST failed: " + e.getMessage(), e);
-            } finally {
-                pendingResult.finish();
-            }
-        });
-    }
-
-    private void showLocalNotification(Context context, String sender) {
-        String channelId = "xylem_sms_alerts";
-        android.app.NotificationManager notificationManager = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            android.app.NotificationChannel channel = new android.app.NotificationChannel(
-                    channelId,
-                    "SMS Tracking Alerts",
-                    android.app.NotificationManager.IMPORTANCE_DEFAULT
-            );
-            channel.setDescription("Alerts for newly tracked bank SMS messages");
-            if (notificationManager != null) {
-                notificationManager.createNotificationChannel(channel);
-            }
-        }
-
-        // Open the app when the notification is tapped
-        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-        if (launchIntent == null) return;
-        launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        
-        int flags = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M 
-                ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE 
-                : android.app.PendingIntent.FLAG_UPDATE_CURRENT;
-        
-        android.app.PendingIntent pendingIntent = android.app.PendingIntent.getActivity(context, 0, launchIntent, flags);
-
-        int iconResId = context.getResources().getIdentifier("ic_launcher", "mipmap", context.getPackageName());
-        if (iconResId == 0) {
-            iconResId = android.R.drawable.ic_dialog_info;
-        }
-
-        android.app.Notification.Builder builder;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            builder = new android.app.Notification.Builder(context, channelId);
-        } else {
-            builder = new android.app.Notification.Builder(context);
-        }
-
-        builder.setSmallIcon(iconResId)
-               .setContentTitle("New Transaction Staged")
-               .setContentText("A new transaction from " + sender + " is ready for your review.")
-               .setContentIntent(pendingIntent)
-               .setAutoCancel(true);
-
-        if (notificationManager != null) {
-            notificationManager.notify((int) System.currentTimeMillis(), builder.build());
+            Log.d(TAG, "WorkManager job enqueued for sender: " + sender);
         }
     }
 }
