@@ -23,44 +23,44 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Silently refresh the session token if it's expired.
-  // We intentionally do NOT redirect here based on auth state.
-  //
-  // REASON: This app runs inside a Capacitor WebView on Android. When Android
-  // wakes the app from a background state, the network connection is not always
-  // immediately available. If we redirect to /login here when getSession() fails
-  // due to a network timeout, the user gets kicked out even though they ARE
-  // authenticated — their token just couldn't refresh yet.
-  //
-  // Auth-based redirects are handled client-side in dashboard/layout.tsx where
-  // we can wait for the network and retry gracefully.
+  let session = null
   try {
-    await supabase.auth.getSession()
+    const { data } = await supabase.auth.getSession()
+    session = data.session
   } catch {
-    // Silently ignore — the response still goes through unchanged.
-    // Client-side auth guard will handle unauthenticated users.
+    // Network or token error — treat as no session.
+    // Client-side auth guard will handle the actual redirect.
+    session = null
   }
 
+  const user = session?.user ?? null
   const isAuthRoute = request.nextUrl.pathname === '/'
   const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
 
-  // Only enforce redirects on the web browser (non-Capacitor) by checking
-  // for the absence of a native user-agent. For the Capacitor WebView, we
-  // pass all requests through and let the client handle auth.
+  // Detect Capacitor Android WebView via user-agent.
+  // Android WebView always includes "wv" in the UA string.
   const userAgent = request.headers.get('user-agent') ?? ''
   const isCapacitorWebView = userAgent.includes('wv') && userAgent.includes('Android')
 
-  if (!isCapacitorWebView) {
-    // Standard web browser: enforce server-side auth redirects
-    const { data: { session } } = await supabase.auth.getSession()
-    const user = session?.user ?? null
-
+  if (isCapacitorWebView) {
+    // NATIVE APP RULES:
+    // ✅ Redirect authenticated user away from login page → dashboard
+    //    (This is the critical one: app starts at '/' on relaunch)
+    // ❌ Do NOT redirect unauthenticated user away from dashboard → login
+    //    (Client-side guard in dashboard/layout.tsx handles this with a 5s
+    //     grace period to allow token refresh to complete over the network)
+    if (isAuthRoute && user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+  } else {
+    // STANDARD WEB BROWSER RULES: full server-side enforcement
     if (isDashboardRoute && !user) {
       const url = request.nextUrl.clone()
       url.pathname = '/'
       return NextResponse.redirect(url)
     }
-
     if (isAuthRoute && user) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
