@@ -136,3 +136,17 @@ export interface SmsSenderMapping {
   label?: string;
   created_at?: string;
 }
+
+export interface Goal {
+  id: string;
+  user_id?: string;
+  account_id?: string | null;
+  name: string;
+  icon: string;
+  color: string;
+  target_amount: number;
+  current_amount: number;
+  deadline?: string | null;
+  is_completed: boolean;
+  created_at?: string;
+}

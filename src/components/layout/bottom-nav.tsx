@@ -12,7 +12,7 @@ const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "#add", label: "Add", icon: Plus, isAction: true },
-  { href: "/dashboard/budgets", label: "Budgets", icon: Target },
+  { href: "/dashboard/goals", label: "Goals", icon: Target },
   { href: "/dashboard/sms-review", label: "SMS", icon: MessageSquare, isSms: true },
 ];
 

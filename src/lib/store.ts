@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule, SmsTransaction, SmsSenderMapping } from "./types";
+import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule, SmsTransaction, SmsSenderMapping, Goal } from "./types";
 import { DEFAULT_CATEGORIES } from "./demo-data";
 import { createClient } from "./supabase/client";
 
@@ -46,6 +46,7 @@ interface AppState {
   categoryRules: CategoryRule[];
   smsTransactions: SmsTransaction[];
   smsSenderMappings: SmsSenderMapping[];
+  goals: Goal[];
 
   // ── UI state ──
   selectedMonth: number;
@@ -105,6 +106,14 @@ interface AppState {
   addSmsSenderMapping: (m: Omit<SmsSenderMapping, "id" | "user_id" | "created_at">) => Promise<void>;
   deleteSmsSenderMapping: (id: string) => Promise<void>;
 
+  // ── actions: goals ──
+  addGoal: (g: Omit<Goal, "id" | "user_id" | "created_at" | "is_completed" | "current_amount">) => Promise<void>;
+  updateGoal: (id: string, g: Partial<Goal>) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
+  contributeToGoal: (goalId: string, amount: number) => Promise<void>;
+  withdrawFromGoal: (goalId: string, amount: number) => Promise<void>;
+  getAccountGoalStats: (accountId: string) => { allocated: number; free: number };
+
   // ── computed ──
   getFilteredTransactions: (month: number, year: number) => Transaction[];
   getMonthlyStats: (month: number, year: number) => MonthlyStats;
@@ -128,6 +137,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   categoryRules: [],
   smsTransactions: [],
   smsSenderMappings: [],
+  goals: [],
   selectedMonth: currentMonth,
   selectedYear: currentYear,
   isDarkMode: true,
@@ -148,7 +158,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     supabase.from("sms_transactions").delete()
       .eq("user_id", userId).eq("status", "rejected").lt("created_at", thirtyDaysAgo);
 
-    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes, smsRes, mappingRes] = await Promise.all([
+    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes, smsRes, mappingRes, goalsRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
       supabase.from("accounts").select("*").eq("user_id", userId),
@@ -158,6 +168,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       supabase.from("category_rules").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
       fetch("/api/sms").then(res => res.json()), // Secure API fetch with server-side AES decryption
       supabase.from("sms_sender_mappings").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+      supabase.from("goals").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
@@ -212,6 +223,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       categoryRules,
       smsTransactions,
       smsSenderMappings,
+      goals: (goalsRes.data ?? []) as Goal[],
       isLoading: false,
     });
   },
@@ -622,5 +634,113 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
 
     await addTransaction(adjustingTxn);
+  },
+
+  // ── Goals ──────────────────────────────────────────────────────────────────
+  addGoal: async (g) => {
+    const { userId } = get();
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from("goals")
+      .insert({ ...g, user_id: userId, current_amount: 0, is_completed: false })
+      .select()
+      .single();
+    if (!error && data) {
+      set((s) => ({ goals: [data as Goal, ...s.goals] }));
+    }
+  },
+
+  updateGoal: async (id, g) => {
+    const { error } = await supabase.from("goals").update(g).eq("id", id);
+    if (!error) {
+      set((s) => ({ goals: s.goals.map((goal) => (goal.id === id ? { ...goal, ...g } : goal)) }));
+    }
+  },
+
+  deleteGoal: async (id) => {
+    const { error } = await supabase.from("goals").delete().eq("id", id);
+    if (!error) {
+      set((s) => ({ goals: s.goals.filter((g) => g.id !== id) }));
+    }
+  },
+
+  contributeToGoal: async (goalId, amount) => {
+    const { goals } = get();
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const newAmount = Math.min(goal.current_amount + amount, goal.target_amount);
+    const isNowComplete = newAmount >= goal.target_amount;
+
+    const { error } = await supabase
+      .from("goals")
+      .update({ current_amount: newAmount, is_completed: isNowComplete })
+      .eq("id", goalId);
+
+    if (!error) {
+      set((s) => ({
+        goals: s.goals.map((g) =>
+          g.id === goalId ? { ...g, current_amount: newAmount, is_completed: isNowComplete } : g
+        ),
+      }));
+
+      if (isNowComplete) {
+        // 🎉 Confetti
+        import("canvas-confetti").then((mod) => {
+          mod.default({
+            particleCount: 160,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: [goal.color, "#22c55e", "#facc15", "#a78bfa"],
+          });
+        });
+
+        // 📱 Native push notification
+        import("@capacitor/core").then(({ Capacitor }) => {
+          if (Capacitor.isNativePlatform()) {
+            import("@capacitor/local-notifications").then(({ LocalNotifications }) => {
+              LocalNotifications.schedule({
+                notifications: [{
+                  id: Date.now(),
+                  title: "🎉 Goal Achieved!",
+                  body: `You've reached your goal: ${goal.name}!`,
+                }],
+              });
+            });
+          }
+        });
+      }
+    }
+  },
+
+  withdrawFromGoal: async (goalId: string, amount: number) => {
+    const { goals } = get();
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const newAmount = Math.max(0, goal.current_amount - amount);
+    const isNowComplete = newAmount >= goal.target_amount;
+
+    const { error } = await supabase
+      .from("goals")
+      .update({ current_amount: newAmount, is_completed: isNowComplete })
+      .eq("id", goalId);
+
+    if (!error) {
+      set((s) => ({
+        goals: s.goals.map((g) =>
+          g.id === goalId ? { ...g, current_amount: newAmount, is_completed: isNowComplete } : g
+        ),
+      }));
+    }
+  },
+
+  getAccountGoalStats: (accountId) => {
+    const { goals, getLiveAccountBalance } = get();
+    const allocated = goals
+      .filter((g) => g.account_id === accountId && !g.is_completed)
+      .reduce((sum, g) => sum + g.current_amount, 0);
+    const liveBalance = getLiveAccountBalance(accountId);
+    return { allocated, free: Math.max(0, liveBalance - allocated) };
   },
 }));
