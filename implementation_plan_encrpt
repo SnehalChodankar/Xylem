@@ -1,0 +1,73 @@
+# Goal
+
+Implement **Application-Level Encryption (AES-256-GCM)** for the staging SMS data. Instead of storing the sensitive raw text from bank SMS messages in plaintext inside the Supabase database, Xylem will encrypt the data before saving it, ensuring that even if the database is fully compromised, the SMS data remains unreadable gibberish. Decryption will happen exclusively on the backend API before securely transmitting the data to the authenticated dashboard.
+
+## User Review Required
+
+> [!IMPORTANT]  
+> **Encryption Key Setup:**  
+> Before this feature goes live, you will need to generate a secure random 32-byte hexadecimal string and save it to your `.env.local` (and Vercel environment variables) as `SMS_ENCRYPTION_KEY`. I will provide a simple command for you to generate this key when we begin.
+
+> [!WARNING]  
+> This requires migrating data access. Currently, the browser client requests the SMS transactions directly from the database (which will soon contain encrypted strings). We will route this through a new Next.js secure API endpoint that silently decrypts the data before allowing it into your browser. Any "old" plaintext SMS rows will be gracefully preserved or purged depending on your preference.
+
+## Proposed Changes
+
+---
+
+### Phase 1: Cryptographic Utilities
+
+Create a robust backend encryption module using Node's standard `crypto` library. No third-party dependencies needed.
+
+#### [NEW] `src/lib/encryption.ts`
+- Implement `encryptSms(text: string): string` 
+  - Generates a random Initialization Vector (IV).
+  - Uses `aes-256-gcm` cipher using the `SMS_ENCRYPTION_KEY`.
+  - Returns a formatted string: `iv:authTag:ciphertext`.
+- Implement `decryptSms(encryptedData: string): string`
+  - Parses the payload.
+  - Recreates the decipher to unlock the text.
+  - Handles fallback gracefully (if a row contains old plaintext, it will attempt to return the plaintext safely).
+
+---
+
+### Phase 2: Ingress Encryption (Android → API → DB)
+
+Modify the webhook that receives raw SMS data from your Android app so that the database never sees the plaintext.
+
+#### [MODIFY] `src/app/api/webhooks/sms/route.ts`
+- Import `encryptSms()`.
+- Run `message = encryptSms(message)` before executing the `supabase.from('sms_transactions').insert()` query.
+- Note: We only encrypt the `raw_message` field. Non-sensitive parsed fields like `amount` and `type` remain indexed for easy DB sorting, though we can selectively encrypt `description` (merchant name) as well if desired.
+
+---
+
+### Phase 3: Egress Decryption (DB → API → Browser)
+
+Modify the dashboard state manager so that it no longer fetches raw database rows, but instead fetches through a secure decryption gateway.
+
+#### [NEW] `src/app/api/sms/route.ts`
+- Create a `GET` endpoint.
+- Validates the current user's session using `@supabase/ssr`.
+- Fetches that user's `sms_transactions` from Supabase server-side.
+- Loops through the rows and calls `decryptSms(row.raw_message)`.
+- Returns the clean array of objects to the client.
+
+#### [MODIFY] `src/lib/store.ts`
+- Update the `fetchData()` function entirely. Instead of `supabase.from('sms_transactions').select()`, it will `fetch('/api/sms')`.
+- Modify the Realtime Subscription logic: Supabase websockets will push *encrypted* `INSERT` events. The client will catch the payload and send it to a quick `/api/sms/decrypt` route to decrypt it before showing the notification badge!
+
+## Open Questions
+
+1. **Merchant Descriptions:** The current SMS Webhook extracts a `description` (e.g. "Sent to Starbucks") from the text before saving. Should we encrypt this `description` column as well, or only the `raw_message` (which contains balances and account numbers)?
+2. **Old Data Migration:** When we push this, do you want me to write a one-off script to encrypt existing plain text rows, or is it okay if we just delete any currently pending SMS in your staging table and start fresh with the secure setup? (Deleting them is easiest if you don't have important pending items).
+
+## Verification Plan
+
+### Automated Tests
+- TypeScript build (`npm run build`).
+
+### Manual Verification
+1. Send a dummy POST request to `/api/webhooks/sms`.
+2. Open the Supabase Table Editor and visually confirm that `raw_message` looks entirely like scrambled hexadecimal strings (`iv:tag:cipher`).
+3. Open the Next.js Dashboard. Ensure the Staging view successfully shows the *decrypted* readable message without throwing UI errors.

@@ -1,0 +1,73 @@
+# Goal
+
+Implement a smart Receipt Scanning (OCR) feature allowing users to take photos of paper receipts natively, extract transaction data using Google Gemini Vision AI, and pre-fill the "Add Transaction" modal for quick review and saving.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **API Key Setup Required:** 
+> This architecture uses **Google Gemini 1.5 Flash**, which has a generous free tier of 15 requests per minute and is extremely fast natively. You will need to go to Google AI Studio, generate a free API key, and add it to your `.env.local` file as `GEMINI_API_KEY=your_key_here`. 
+
+> [!WARNING]
+> Since this uses native device hardware, we will install the `@capacitor/camera` plugin. You will need to run a Gradle sync in Android Studio and build a new APK to test this on your physical device. On the browser, it will fallback to a standard file-upload picker automatically.
+
+## Proposed Changes
+
+---
+
+### Phase 1: Dependencies & Configuration
+
+- Install `@capacitor/camera` for native photo capturing.
+- Install `@capacitor/pwa-elements` out-of-the-box UI for the camera on the web (for local browser testing).
+- Install `@google/genai` for the backend AI processing.
+- Add `import_source = "receipt_scan"` to the `Transaction` TypeScript type.
+
+#### [MODIFY] src/lib/types.ts
+#### [MODIFY] android/app/src/main/AndroidManifest.xml (Add Camera permissions)
+
+---
+
+### Phase 2: AI Backend Processing Route
+
+We will keep the API keys hidden securely on the server.
+
+#### [NEW] src/app/api/ocr/route.ts
+- Create a Next.js API route that accepts a Base64 image payload.
+- Initialize the Gemini API client.
+- Prompt Gemini 1.5 Flash with strict JSON-mode instructions to extract:
+  - `amount` (number)
+  - `description` (string, the merchant name)
+  - `date` (ISO date string)
+  - `type` ("debit" or "credit")
+- Return the structured JSON to the app.
+
+---
+
+### Phase 3: UI & App Integration
+
+We will add a "Scan Receipt" button to the main dashboard (perhaps next to the Add Transaction button). Clicking it opens the native camera. After the photo is taken, it sends it to the API, then seamlessly opens the existing `TransactionModal` pre-filled with the extracted data.
+
+#### [NEW] src/components/dashboard/receipt-scanner.tsx
+- A wrapper component that handles opening the Capacitor Camera, showing a loading spinner while the API processes the image, and then triggering the store to open the Add Transaction modal with initial data.
+
+#### [MODIFY] src/components/layout/header.tsx
+- Add a "Scan Receipt" camera icon button next to the "Add Transaction" button.
+
+#### [MODIFY] src/components/dashboard/transaction-modal.tsx
+- Ensure the modal accurately accepts all pre-filled data (Amount, Date, Merchant description) and sets the `import_source` to `receipt_scan`.
+
+## Open Questions
+
+1. Do you already have a Google Gemini API Key, or should I walk you through getting one once we are ready?
+2. Does injecting the extracted data directly into the existing "Add Transaction" dialog for review sound good, or did you want a dedicated "Bulk Receipt Review" screen like the SMS review feature? (Injecting it directly into the Add Transaction popup is usually much faster for 1-off paper receipts).
+
+## Verification Plan
+
+### Automated Tests
+- Run `npm run build` to verify no TypeScript issues.
+- Verify the backend API returns valid JSON when fed a dummy base64 image.
+
+### Manual Verification
+- Add a dummy `GEMINI_API_KEY` locally.
+- Click "Scan Receipt" in the web browser -> it should open the web file picker/webcam.
+- Build the APK, tap the button -> it should open the Android Camera, take a picture, and pop up the Add dialog 3-4 seconds later perfectly pre-filled.

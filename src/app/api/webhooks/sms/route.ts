@@ -101,11 +101,15 @@ export async function POST(req: Request) {
 
     const description = generateDescription(message, parsed.type);
 
+    const { encryptSms } = await import("@/lib/encryption");
+    const encryptedMessage = encryptSms(message);
+
     // Insert into sms_transactions staging table (NOT transactions directly)
+    // The raw_message is completely scrambled using AES-256-GCM.
     const { data, error } = await supabase.from('sms_transactions').insert({
       user_id: userId,
       sender,
-      raw_message: message,
+      raw_message: encryptedMessage,
       amount: parsed.amount,
       type: parsed.type,
       description,

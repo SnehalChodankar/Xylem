@@ -1,0 +1,86 @@
+# Goal
+
+Build a comprehensive **Goals Tracking Module** where users can create financial goals (e.g., "New Car", "Emergency Fund"), track progressing savings toward a target amount, manually contribute funds, and receive a celebratory notification (native push + web toast + confetti) when they reach their target.
+
+## User Review Required
+
+> [!IMPORTANT]  
+> **Database Changes Required:**  
+> Before this can function, you will need to run a small SQL snippet in your Supabase SQL Editor to create the new `goals` table and set up Row Level Security (RLS) so users can only see their own goals. The SQL is provided in the Execution phase.
+
+## Proposed Changes
+
+---
+
+### Phase 1: Database & Store Configuration
+
+We'll add the new `Goal` entity to the app's types and Zustand state management.
+
+#### [NEW] Supabase `goals` Table
+(SQL script to be run in the Supabase Dashboard)
+- `id` (uuid)
+- `user_id` (uuid)
+- `name` (text)
+- `target_amount` (numeric)
+- `current_amount` (numeric)
+- `deadline` (date, optional)
+- `icon` (text)
+- `color` (text)
+
+#### [MODIFY] `src/lib/types.ts`
+- Add `Goal` interface matching the database schema.
+
+#### [MODIFY] `src/lib/store.ts`
+- Add `goals: Goal[]` to the app state.
+- Add fetch, create, update, delete actions for Goals.
+- Add `contributeToGoal(goalId, amount)` action. This action will explicitly check if the new `current_amount >= target_amount`. If it crosses the threshold, it triggers the notification.
+
+---
+
+### Phase 2: Goal Contribution & Notifications
+
+When a user adds money to a goal, we need to celebrate when they hit 100%.
+
+#### [MODIFY] `src/lib/store.ts` (Notification Logic)
+- **Web**: Fire `react-hot-toast` and a confetti animation (using `canvas-confetti`).
+- **Native (Android)**: Run `LocalNotifications.schedule()` via `@capacitor/local-notifications` to trigger a system-level alert.
+
+#### [NEW] Install Confetti Dependency
+- `npm install canvas-confetti @types/canvas-confetti`
+
+---
+
+### Phase 3: Goals UI & Dashboard
+
+The user needs a place to view, create, and manage their goals.
+
+#### [NEW] `src/app/dashboard/goals/page.tsx`
+- The main Goals page displaying a visually pleasing grid of Goal Cards.
+- Each Card shows: Icon, Name, Deadline (if any), a colorful Progress Bar, and a quick "Add Funds" button.
+
+#### [NEW] `src/components/dashboard/add-goal-dialog.tsx`
+- Modal form (React Hook Form + Zod) to create or edit a goal.
+- Lets the user pick an icon and color (re-using your existing category icon picker).
+
+#### [NEW] `src/components/dashboard/contribute-goal-dialog.tsx`
+- A quick modal that pops up when clicking "Add Funds" on a goal card.
+- User inputs how much they saved this month/week.
+
+#### [MODIFY] `src/components/layout/sidebar.tsx` & `bottom-nav.tsx`
+- Add the "Goals" icon/link (perhaps a `Target` icon) to the navigation menus to make it easily accessible.
+
+## Open Questions
+
+1. **Funding Source**: When a user clicks "Add Funds" to a goal, should those funds be officially subtracted from one of their `Accounts` (like a transfer transaction), or is it just a standalone "Savings Counter" that doesn't actually impact their main bank account balances in Xylem? *(Standalone counter is easier and faster for users, whereas linking it to accounts is stricter accounting).*
+
+## Verification Plan
+
+### Automated Tests
+- Run `npm run build` to verify Next.js/TypeScript compilation.
+
+### Manual Verification
+1. Run SQL snippet in Supabase.
+2. Navigate to the new `/dashboard/goals` page.
+3. Create a goal for $500.
+4. Add $400 (progress bar animation to 80%).
+5. Add $100 -> Confetti should trigger on screen, and if on native Webview, an Android System Notification should pop up.

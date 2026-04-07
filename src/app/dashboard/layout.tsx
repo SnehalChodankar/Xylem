@@ -62,10 +62,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const smsChannel = supabase
       .channel("realtime-sms-transactions")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "sms_transactions", filter: `user_id=eq.${userId}` },
-        (payload) => {
+        async (payload) => {
           const { smsTransactions } = useAppStore.getState();
           const newSms = payload.new as any;
           if (!smsTransactions.find((t) => t.id === newSms.id)) {
+            try {
+              const res = await fetch("/api/sms/decrypt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ encryptedData: newSms.raw_message })
+              });
+              const { decrypted } = await res.json();
+              newSms.raw_message = decrypted || newSms.raw_message;
+            } catch (err) {
+              console.error("Failed to decrypt incoming realtime SMS:", err);
+            }
             useAppStore.setState({ smsTransactions: [newSms, ...smsTransactions] });
           }
         }

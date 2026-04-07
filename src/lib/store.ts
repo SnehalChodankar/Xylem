@@ -156,7 +156,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       supabase.from("recurring_transactions").select("*").eq("user_id", userId),
       supabase.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
       supabase.from("category_rules").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
-      supabase.from("sms_transactions").select("*").eq("user_id", userId).neq("status", "approved").order("created_at", { ascending: false }),
+      fetch("/api/sms").then(res => res.json()), // Secure API fetch with server-side AES decryption
       supabase.from("sms_sender_mappings").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
     ]);
 
