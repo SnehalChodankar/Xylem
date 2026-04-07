@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus, MessageSquare } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus, MessageSquare, Sparkles, Settings } from "lucide-react";
 import { useState } from "react";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
 import { useAppStore } from "@/lib/store";
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/dashboard/transactions", label: "Txns", icon: ArrowLeftRight },
+  { href: "/dashboard/chat", label: "AI", icon: Sparkles },
   { href: "#add", label: "Add", icon: Plus, isAction: true },
   { href: "/dashboard/goals", label: "Goals", icon: Target },
   { href: "/dashboard/sms-review", label: "SMS", icon: MessageSquare, isSms: true },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 export function BottomNav() {
@@ -50,7 +52,7 @@ export function BottomNav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "relative flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors min-w-[60px]",
+                    "relative flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-xl transition-colors min-w-[45px] flex-1",
                     isActive ? "text-primary" : "text-muted-foreground"
                   )}
                 >
@@ -62,7 +64,7 @@ export function BottomNav() {
                       </span>
                     )}
                   </div>
-                  <span className="text-[10px] font-medium">{item.label}</span>
+                  <span className="text-[9px] font-medium leading-tight text-center">{item.label}</span>
                 </Link>
               );
             }
@@ -72,12 +74,12 @@ export function BottomNav() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors min-w-[60px]",
+                  "flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-xl transition-colors min-w-[45px] flex-1",
                   isActive ? "text-primary" : "text-muted-foreground"
                 )}
               >
                 <item.icon className={cn("h-5 w-5", isActive && "stroke-[2.5px]")} />
-                <span className="text-[10px] font-medium">{item.label}</span>
+                <span className="text-[9px] font-medium leading-tight text-center">{item.label}</span>
               </Link>
             );
           })}

@@ -97,14 +97,11 @@ export function Header() {
       {/* Right: Actions */}
       <div className="flex items-center gap-1">
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-          {/* @ts-expect-error - overriding shadcn strict button props for radix pass-through */}
-          <PopoverTrigger asChild>
-            <button className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors relative">
-              <Bell className="h-[18px] w-[18px]" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive animate-pulse" />
-              )}
-            </button>
+          <PopoverTrigger className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors relative">
+            <Bell className="h-[18px] w-[18px]" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive animate-pulse" />
+            )}
           </PopoverTrigger>
           <PopoverContent align="end" className="w-[380px] max-w-[calc(100vw-32px)] mx-4 sm:mx-0 p-0 overflow-hidden rounded-xl shadow-xl border-border/60">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-card/60 backdrop-blur-sm">

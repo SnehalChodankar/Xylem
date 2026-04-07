@@ -17,11 +17,13 @@ import {
   X,
   Repeat,
   MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 
 const mainNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/chat", label: "AI Chat", icon: Sparkles },
   { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/dashboard/subscriptions", label: "Subscriptions", icon: Repeat },
   { href: "/dashboard/goals", label: "Goals", icon: Target },
