@@ -5,9 +5,11 @@ import { useAppStore } from "@/lib/store";
 import { Goal } from "@/lib/types";
 import { AddGoalDialog } from "@/components/dashboard/add-goal-dialog";
 import { ContributeGoalDialog } from "@/components/dashboard/contribute-goal-dialog";
+import { RedeemGoalDialog } from "@/components/dashboard/redeem-goal-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus, Target, Trash2, CheckCircle2, CalendarClock, TrendingUp, Wallet,
+  PartyPopper, Banknote, RotateCcw,
 } from "lucide-react";
 import { formatDistanceToNow, isPast, parseISO } from "date-fns";
 
@@ -16,16 +18,23 @@ const fmt = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
 export default function GoalsPage() {
-  const { goals, accounts, deleteGoal, getAccountGoalStats, getLiveAccountBalance } = useAppStore();
+  const { goals, accounts, deleteGoal, getAccountGoalStats, getLiveAccountBalance, withdrawFromGoal } = useAppStore();
   const [showAdd, setShowAdd] = useState(false);
   const [contributeGoal, setContributeGoal] = useState<Goal | null>(null);
+  const [redeemGoal, setRedeemGoal] = useState<Goal | null>(null);
 
   const activeGoals = goals.filter((g) => !g.is_completed);
   const completedGoals = goals.filter((g) => g.is_completed);
 
-  // Accounts that have at least one linked goal
-  const linkedAccountIds = [...new Set(goals.map((g) => g.account_id).filter(Boolean))] as string[];
-  const allAccountIds = [...new Set([...linkedAccountIds, ...accounts.map((a) => a.id)])];
+  // Sort: target-reached goals first, then by progress descending
+  const sortedActiveGoals = [...activeGoals].sort((a, b) => {
+    const aReached = a.current_amount >= a.target_amount ? 1 : 0;
+    const bReached = b.current_amount >= b.target_amount ? 1 : 0;
+    if (aReached !== bReached) return bReached - aReached; // reached first
+    const aPct = a.target_amount > 0 ? a.current_amount / a.target_amount : 0;
+    const bPct = b.target_amount > 0 ? b.current_amount / b.target_amount : 0;
+    return bPct - aPct; // then highest progress
+  });
 
   return (
     <div className="p-4 lg:p-6 space-y-8 max-w-5xl mx-auto">
@@ -47,7 +56,7 @@ export default function GoalsPage() {
       </div>
 
       {/* ── Active Goals Grid ─────────────────────────────────────────── */}
-      {activeGoals.length === 0 ? (
+      {sortedActiveGoals.length === 0 && completedGoals.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20 gap-4 text-center">
           <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
             <Target className="h-8 w-8 text-primary" />
@@ -62,18 +71,19 @@ export default function GoalsPage() {
             Create Goal
           </Button>
         </div>
-      ) : (
+      ) : sortedActiveGoals.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {activeGoals.map((goal) => (
+          {sortedActiveGoals.map((goal) => (
             <GoalCard
               key={goal.id}
               goal={goal}
               onContribute={() => setContributeGoal(goal)}
+              onRedeem={() => setRedeemGoal(goal)}
               onDelete={() => deleteGoal(goal.id)}
             />
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* ── Account Savings Panel ─────────────────────────────────────── */}
       {accounts.length > 0 && (
@@ -182,30 +192,43 @@ export default function GoalsPage() {
             {completedGoals.map((goal) => (
               <div
                 key={goal.id}
-                className="relative flex items-center gap-3 p-4 rounded-xl border border-border/30 bg-muted/20 opacity-75"
+                className="relative flex items-center gap-3 p-4 rounded-xl border border-border/30 bg-muted/20 group"
               >
                 <span className="text-2xl">{goal.icon}</span>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{goal.name}</p>
                   <p className="text-xs text-emerald-500 font-medium">
-                    {fmt(goal.target_amount)} · Completed 🎉
+                    {fmt(goal.target_amount)} · Redeemed 🎉
                   </p>
                 </div>
-                <button
-                  onClick={() => deleteGoal(goal.id)}
-                  className="text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setContributeGoal(goal)}
+                    title="Manage funds (withdraw to reactivate)"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => deleteGoal(goal.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground px-1">
+            💡 Hover on a completed goal and click <RotateCcw className="inline h-3 w-3" /> to withdraw funds — this will reactivate the goal.
+          </p>
         </section>
       )}
 
       {/* ── Dialogs ───────────────────────────────────────────────────── */}
       <AddGoalDialog open={showAdd} onClose={() => setShowAdd(false)} />
       <ContributeGoalDialog goal={contributeGoal} onClose={() => setContributeGoal(null)} />
+      <RedeemGoalDialog goal={redeemGoal} onClose={() => setRedeemGoal(null)} />
     </div>
   );
 }
@@ -214,28 +237,43 @@ export default function GoalsPage() {
 function GoalCard({
   goal,
   onContribute,
+  onRedeem,
   onDelete,
 }: {
   goal: Goal;
   onContribute: () => void;
+  onRedeem: () => void;
   onDelete: () => void;
 }) {
   const progressPct = Math.min((goal.current_amount / goal.target_amount) * 100, 100);
   const remaining = goal.target_amount - goal.current_amount;
   const isOverdue = goal.deadline && isPast(parseISO(goal.deadline));
+  const isTargetReached = goal.current_amount >= goal.target_amount;
   const { accounts } = useAppStore();
   const linkedAccount = accounts.find((a) => a.id === goal.account_id);
 
   return (
     <div
-      className="group relative flex flex-col rounded-2xl border border-border/40 bg-card p-5 gap-4 hover:shadow-lg transition-all duration-200 overflow-hidden"
-      style={{ borderColor: goal.color + "30" }}
+      className={`group relative flex flex-col rounded-2xl border bg-card p-5 gap-4 hover:shadow-lg transition-all duration-200 overflow-hidden ${
+        isTargetReached
+          ? "border-emerald-500/50 shadow-md shadow-emerald-500/10"
+          : "border-border/40"
+      }`}
+      style={{ borderColor: isTargetReached ? undefined : goal.color + "30" }}
     >
       {/* Subtle tinted bg */}
       <div
         className="absolute inset-0 opacity-[0.04] pointer-events-none"
         style={{ background: `radial-gradient(ellipse at top left, ${goal.color}, transparent 70%)` }}
       />
+
+      {/* Target Reached Banner */}
+      {isTargetReached && (
+        <div className="absolute top-0 right-0 px-3 py-1 bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-bl-xl flex items-center gap-1">
+          <PartyPopper className="h-3 w-3" />
+          Target Reached!
+        </div>
+      )}
 
       {/* Top row: icon + name + delete */}
       <div className="flex items-start justify-between gap-2 relative">
@@ -277,7 +315,7 @@ function GoalCard({
               of {fmt(goal.target_amount)}
             </p>
           </div>
-          <span className="text-sm font-bold tabular-nums text-muted-foreground">
+          <span className={`text-sm font-bold tabular-nums ${isTargetReached ? "text-emerald-500" : "text-muted-foreground"}`}>
             {progressPct.toFixed(0)}%
           </span>
         </div>
@@ -285,21 +323,25 @@ function GoalCard({
         {/* Animated progress bar */}
         <div className="h-2.5 rounded-full bg-muted overflow-hidden">
           <div
-            className="h-full rounded-full transition-all duration-700"
+            className={`h-full rounded-full transition-all duration-700 ${isTargetReached ? "animate-pulse" : ""}`}
             style={{
               width: `${progressPct}%`,
-              background: `linear-gradient(90deg, ${goal.color}99, ${goal.color})`,
+              background: isTargetReached
+                ? "linear-gradient(90deg, #22c55e, #10b981)"
+                : `linear-gradient(90deg, ${goal.color}99, ${goal.color})`,
             }}
           />
         </div>
 
         <p className="text-xs text-muted-foreground">
-          {fmt(remaining)} to go
+          {isTargetReached
+            ? "🎉 Your savings target has been reached!"
+            : `${fmt(remaining)} to go`}
         </p>
       </div>
 
       {/* Deadline badge */}
-      {goal.deadline && (
+      {goal.deadline && !isTargetReached && (
         <div
           className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full self-start ${
             isOverdue
@@ -313,15 +355,37 @@ function GoalCard({
         </div>
       )}
 
-      {/* CTA */}
-      <Button
-        onClick={onContribute}
-        size="sm"
-        className="w-full rounded-xl font-semibold text-white mt-auto"
-        style={{ backgroundColor: goal.color }}
-      >
-        Add Funds
-      </Button>
+      {/* CTA — changes based on state */}
+      {isTargetReached ? (
+        <div className="flex gap-2 mt-auto">
+          <Button
+            onClick={onContribute}
+            variant="outline"
+            size="sm"
+            className="flex-1 rounded-xl text-xs"
+          >
+            Manage
+          </Button>
+          <Button
+            onClick={onRedeem}
+            size="sm"
+            className="flex-1 rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-700"
+          >
+            <Banknote className="h-3.5 w-3.5 mr-1.5" />
+            Withdraw Funds
+          </Button>
+        </div>
+      ) : (
+        <Button
+          onClick={onContribute}
+          size="sm"
+          className="w-full rounded-xl font-semibold text-white mt-auto"
+          style={{ backgroundColor: goal.color }}
+        >
+          Add Funds
+        </Button>
+      )}
     </div>
   );
 }
+

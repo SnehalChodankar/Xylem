@@ -112,6 +112,7 @@ interface AppState {
   deleteGoal: (id: string) => Promise<void>;
   contributeToGoal: (goalId: string, amount: number) => Promise<void>;
   withdrawFromGoal: (goalId: string, amount: number) => Promise<void>;
+  redeemGoal: (goalId: string, amount: number, description: string, categoryId?: string) => Promise<void>;
   getAccountGoalStats: (accountId: string) => { allocated: number; free: number };
 
   // ── computed ──
@@ -670,21 +671,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!goal) return;
 
     const newAmount = Math.min(goal.current_amount + amount, goal.target_amount);
-    const isNowComplete = newAmount >= goal.target_amount;
+    const justReachedTarget = newAmount >= goal.target_amount && goal.current_amount < goal.target_amount;
 
+    // Do NOT auto-complete — the goal stays active so the user can explicitly redeem
     const { error } = await supabase
       .from("goals")
-      .update({ current_amount: newAmount, is_completed: isNowComplete })
+      .update({ current_amount: newAmount })
       .eq("id", goalId);
 
     if (!error) {
       set((s) => ({
         goals: s.goals.map((g) =>
-          g.id === goalId ? { ...g, current_amount: newAmount, is_completed: isNowComplete } : g
+          g.id === goalId ? { ...g, current_amount: newAmount } : g
         ),
       }));
 
-      if (isNowComplete) {
+      if (justReachedTarget) {
         // 🎉 Confetti
         import("canvas-confetti").then((mod) => {
           mod.default({
@@ -702,8 +704,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               LocalNotifications.schedule({
                 notifications: [{
                   id: Date.now(),
-                  title: "🎉 Goal Achieved!",
-                  body: `You've reached your goal: ${goal.name}!`,
+                  title: "🎉 Target Reached!",
+                  body: `You've saved enough for: ${goal.name}! Withdraw your funds when ready.`,
                 }],
               });
             });
@@ -719,19 +721,77 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!goal) return;
 
     const newAmount = Math.max(0, goal.current_amount - amount);
-    const isNowComplete = newAmount >= goal.target_amount;
+    // If withdrawing from a completed goal, reactivate it
+    const shouldReactivate = goal.is_completed && newAmount < goal.target_amount;
+
+    const updates: Partial<Goal> = { current_amount: newAmount };
+    if (shouldReactivate) updates.is_completed = false;
 
     const { error } = await supabase
       .from("goals")
-      .update({ current_amount: newAmount, is_completed: isNowComplete })
+      .update(updates)
       .eq("id", goalId);
 
     if (!error) {
       set((s) => ({
         goals: s.goals.map((g) =>
-          g.id === goalId ? { ...g, current_amount: newAmount, is_completed: isNowComplete } : g
+          g.id === goalId ? { ...g, ...updates } : g
         ),
       }));
+    }
+  },
+
+  redeemGoal: async (goalId: string, amount: number, description: string, categoryId?: string) => {
+    const { goals, addTransaction } = get();
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const redeemAmount = Math.min(amount, goal.current_amount);
+    const isFullRedemption = redeemAmount >= goal.current_amount;
+    const newAmount = goal.current_amount - redeemAmount;
+
+    // 1. Create a real debit transaction for the redeemed funds
+    const txn: Omit<Transaction, "id" | "created_at" | "updated_at" | "user_id"> = {
+      type: "debit",
+      amount: redeemAmount,
+      description: description || `🎯 Goal Redeemed: ${goal.name}`,
+      date: new Date().toISOString().split("T")[0],
+      account_id: goal.account_id || undefined,
+      category_id: categoryId || undefined,
+      notes: `Funds withdrawn from savings goal: ${goal.name}`,
+      import_source: "manual",
+    };
+    await addTransaction(txn);
+
+    // 2. Update the goal — mark completed only on full redemption
+    const updates: Partial<Goal> = {
+      current_amount: newAmount,
+      is_completed: isFullRedemption,
+    };
+
+    const { error } = await supabase
+      .from("goals")
+      .update(updates)
+      .eq("id", goalId);
+
+    if (!error) {
+      set((s) => ({
+        goals: s.goals.map((g) =>
+          g.id === goalId ? { ...g, ...updates } : g
+        ),
+      }));
+
+      if (isFullRedemption) {
+        // 🎉 Celebration confetti for full redemption
+        import("canvas-confetti").then((mod) => {
+          mod.default({
+            particleCount: 200,
+            spread: 100,
+            origin: { y: 0.5 },
+            colors: [goal.color, "#22c55e", "#facc15", "#a78bfa"],
+          });
+        });
+      }
     }
   },
 
