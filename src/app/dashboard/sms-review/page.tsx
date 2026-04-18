@@ -8,23 +8,84 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, MessageSquare, ChevronDown, ChevronUp, Inbox } from "lucide-react";
+import { CheckCircle2, XCircle, MessageSquare, ChevronDown, ChevronUp, Inbox, RefreshCcw, Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/helpers";
+import { createClient } from "@/lib/supabase/client";
+import { Capacitor, registerPlugin } from "@capacitor/core";
+
+const SmsTracker = registerPlugin<any>("SmsTracker");
 
 export default function SmsReviewPage() {
-  const { smsTransactions, accounts, categories, approveSmsTransaction, rejectSmsTransaction } = useAppStore();
+  const { smsTransactions, accounts, categories, approveSmsTransaction, rejectSmsTransaction, fetchData } = useAppStore();
   const pending = smsTransactions.filter((t) => t.status === "pending");
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      if (!Capacitor.isNativePlatform()) {
+        alert("SMS sync is only available natively on Android.");
+        setSyncing(false);
+        return;
+      }
+
+      if (!SmsTracker) throw new Error("SMS Plugin not found.");
+
+      // Attempt to sync todays SMS list via Java plugin
+      const result = await SmsTracker.syncTodaySms();
+      const messages = result.messages || [];
+
+      if (messages.length === 0) {
+        alert("No SMS found in your inbox for today.");
+        setSyncing(false);
+        return;
+      }
+
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No active session");
+
+      const res = await fetch("/api/webhooks/sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: session.access_token,
+          userId: session.user.id,
+          messages
+        })
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // Refresh store to pull newly inserted pending SMS
+      await fetchData();
+      
+      alert(`Successfully scanned ${messages.length} SMS. Discovered ${data.count || 0} valid banking transactions.`);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to sync SMS: " + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-2xl mx-auto">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-          <MessageSquare className="h-5 w-5 text-primary" />
-          SMS Review Queue
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Review bank SMS transactions before adding them to your ledger.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-primary" />
+            SMS Review Queue
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Review bank SMS transactions before adding them to your ledger.
+          </p>
+        </div>
+        <Button onClick={handleSync} disabled={syncing} className="rounded-xl font-semibold gap-2 border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 shadow-none">
+          {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+          <span className="hidden sm:inline">Sync Today</span>
+        </Button>
       </div>
 
       {pending.length === 0 ? (

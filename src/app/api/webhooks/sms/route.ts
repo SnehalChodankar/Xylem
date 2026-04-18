@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { encryptSms, decryptSms } from "@/lib/encryption";
 
 function parseBankMessage(msg: string, sender: string = "") {
   const lowerMsg = msg.toLowerCase();
@@ -50,15 +51,17 @@ function generateDescription(msg: string, type: string): string {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { sender, message, token, userId } = body;
+    const { token, userId, messages: batchMessages, sender, message } = body;
 
-    if (!sender || !message || !token || !userId) {
-      return NextResponse.json({ error: "Missing required payload fields." }, { status: 400 });
+    if (!token || !userId) {
+      return NextResponse.json({ error: "Missing required token or userId." }, { status: 400 });
     }
 
-    const parsed = parseBankMessage(message, sender);
-    if (!parsed) {
-      return NextResponse.json({ status: "ignored_non_transaction" });
+    // Support both batch and legacy single-message payload
+    const messagesToProcess = batchMessages || [{ sender, message }];
+
+    if (!messagesToProcess || messagesToProcess.length === 0) {
+      return NextResponse.json({ status: "no_messages" });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -67,64 +70,88 @@ export async function POST(req: Request) {
       global: { headers: { Authorization: `Bearer ${token}` } }
     });
 
-    // Auto-assign account via sender mappings
-    const { data: mappings } = await supabase
-      .from('sms_sender_mappings')
-      .select('*')
-      .eq('user_id', userId);
+    // 1. Fetch user rules and mappings for auto-categorization
+    const { data: mappings } = await supabase.from('sms_sender_mappings').select('*').eq('user_id', userId);
+    const { data: rules } = await supabase.from('category_rules').select('*').eq('user_id', userId);
 
-    let assignedAccountId: string | null = null;
-    if (mappings) {
-      const upperSender = sender.toUpperCase();
-      const match = mappings.find((m: any) =>
-        upperSender.includes(m.sender_pattern.toUpperCase())
-      );
-      if (match) assignedAccountId = match.account_id;
-    }
+    // 2. Fetch recent transactions for deduplication (last 50 for this user)
+    const { data: recentTxns } = await supabase
+      .from('sms_transactions')
+      .select('raw_message')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+      
+    // Decrypt them so we can compare the raw text
+    const recentMessages = new Set((recentTxns || []).map(t => {
+      try { return decryptSms(t.raw_message); } catch (e) { return ""; }
+    }).filter(Boolean));
 
-    // Auto-assign category via keyword rules
-    const { data: rules } = await supabase
-      .from('category_rules')
-      .select('*')
-      .eq('user_id', userId);
+    const insertPayload = [];
 
-    let assignedCategoryId: string | null = null;
-    if (rules) {
-      const lowerMessage = message.toLowerCase();
-      for (const rule of rules) {
-        if (lowerMessage.includes(rule.keyword.toLowerCase())) {
-          assignedCategoryId = rule.category_id;
-          break;
+    // 3. Process each message
+    for (const msgObj of messagesToProcess) {
+      if (!msgObj || !msgObj.sender || !msgObj.message) continue;
+      
+      const parsed = parseBankMessage(msgObj.message, msgObj.sender);
+      if (!parsed) continue; // Ignore non-transactions safely
+
+      // Deduplication check
+      if (recentMessages.has(msgObj.message)) {
+        continue; // Skip, already inserted recently
+      }
+
+      let assignedAccountId: string | null = null;
+      if (mappings) {
+        const upperSender = msgObj.sender.toUpperCase();
+        const match = mappings.find((m: any) => upperSender.includes(m.sender_pattern.toUpperCase()));
+        if (match) assignedAccountId = match.account_id;
+      }
+
+      let assignedCategoryId: string | null = null;
+      if (rules) {
+        const lowerMessage = msgObj.message.toLowerCase();
+        for (const rule of rules) {
+          if (lowerMessage.includes(rule.keyword.toLowerCase())) {
+            assignedCategoryId = rule.category_id;
+            break;
+          }
         }
       }
+
+      const description = generateDescription(msgObj.message, parsed.type);
+      const encryptedMessage = encryptSms(msgObj.message);
+
+      insertPayload.push({
+        user_id: userId,
+        sender: msgObj.sender,
+        raw_message: encryptedMessage,
+        amount: parsed.amount,
+        type: parsed.type,
+        description,
+        account_id: assignedAccountId,
+        category_id: assignedCategoryId,
+        status: 'pending',
+        date: new Date().toISOString().split('T')[0],
+      });
+      
+      // Add to set to prevent deduplication against itself within the same batch
+      recentMessages.add(msgObj.message);
     }
 
-    const description = generateDescription(message, parsed.type);
+    if (insertPayload.length === 0) {
+      return NextResponse.json({ status: "success", count: 0 });
+    }
 
-    const { encryptSms } = await import("@/lib/encryption");
-    const encryptedMessage = encryptSms(message);
-
-    // Insert into sms_transactions staging table (NOT transactions directly)
-    // The raw_message is completely scrambled using AES-256-GCM.
-    const { data, error } = await supabase.from('sms_transactions').insert({
-      user_id: userId,
-      sender,
-      raw_message: encryptedMessage,
-      amount: parsed.amount,
-      type: parsed.type,
-      description,
-      account_id: assignedAccountId,
-      category_id: assignedCategoryId,
-      status: 'pending',
-      date: new Date().toISOString().split('T')[0],
-    }).select();
+    // Insert all valid parsed transactions dynamically safely into staging
+    const { error } = await supabase.from('sms_transactions').insert(insertPayload);
 
     if (error) {
-      console.error("Supabase SMS staging insert error:", error);
+      console.error("Supabase SMS batch insert error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ status: "success", data });
+    return NextResponse.json({ status: "success", count: insertPayload.length });
 
   } catch (err: any) {
     console.error("Webhook exception:", err);
