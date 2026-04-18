@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plane } from "lucide-react";
 
 export function AddTransactionDialog({
   open,
@@ -17,7 +17,7 @@ export function AddTransactionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { categories, accounts, budgets, getFilteredTransactions, addTransaction, addRecurringTransaction, addNotification } = useAppStore();
+  const { categories, accounts, budgets, getFilteredTransactions, addTransaction, addRecurringTransaction, addNotification, activeTrip } = useAppStore();
   const [type, setType] = useState<"debit" | "credit">("debit");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -28,6 +28,7 @@ export function AddTransactionDialog({
   const [notes, setNotes] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
   const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
+  const [logToLedger, setLogToLedger] = useState(false); // default to trip-only
   const [saving, setSaving] = useState(false);
 
   const filteredCategories = categories.filter(
@@ -63,6 +64,7 @@ export function AddTransactionDialog({
         payment_method: paymentMethod,
         notes: notes || undefined,
         import_source: "manual",
+        exclude_from_ledger: (activeTrip && !activeTrip.is_paused) ? !logToLedger : false,
       });
 
       // === TYPE 2: CONTEXTUAL NOTIFICATION TRIGGER ===
@@ -106,6 +108,7 @@ export function AddTransactionDialog({
     setCategoryId("");
     setNotes("");
     setIsRecurring(false);
+    setLogToLedger(false);
     onOpenChange(false);
   };
 
@@ -119,6 +122,39 @@ export function AddTransactionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5 pt-2">
+          {/* Travel Mode Banner */}
+          {activeTrip && !activeTrip.is_paused && (
+            <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-3">
+              <div className="flex items-center gap-2 text-sky-500">
+                <Plane className="h-4 w-4" />
+                <span className="text-sm font-semibold truncate leading-none">Adding to {activeTrip.name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs font-bold block mb-0.5 text-foreground">Log to main ledger?</Label>
+                  <p className="text-[10px] text-muted-foreground leading-tight">If off, this will ONLY show up in the trip summary</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={logToLedger}
+                  onClick={() => setLogToLedger(!logToLedger)}
+                  className={cn(
+                    "relative inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    logToLedger ? "bg-emerald-500" : "bg-input"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform",
+                      logToLedger ? "translate-x-4" : "translate-x-0"
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Type toggle */}
           <div className="flex gap-2 p-1 bg-muted rounded-xl">
             <button

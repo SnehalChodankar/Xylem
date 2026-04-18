@@ -3,26 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus, MessageSquare, Sparkles, Settings } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, Target, PieChart, Plus, MessageSquare, Sparkles, Settings, Plane } from "lucide-react";
 import { useState } from "react";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
 import { useAppStore } from "@/lib/store";
 
-const navItems = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/dashboard/transactions", label: "Txns", icon: ArrowLeftRight },
-  { href: "/dashboard/chat", label: "AI", icon: Sparkles },
-  { href: "#add", label: "Add", icon: Plus, isAction: true },
-  { href: "/dashboard/goals", label: "Goals", icon: Target },
-  { href: "/dashboard/sms-review", label: "SMS", icon: MessageSquare, isSms: true },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
-];
-
 export function BottomNav() {
   const pathname = usePathname();
   const [addOpen, setAddOpen] = useState(false);
-  const { smsTransactions } = useAppStore();
+  const { smsTransactions, activeTrip } = useAppStore();
   const pendingCount = smsTransactions.filter((t) => t.status === "pending").length;
+
+  const navItems = [
+    { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+    { href: "/dashboard/transactions", label: "Txns", icon: ArrowLeftRight },
+    { href: "/dashboard/chat", label: "AI", icon: Sparkles },
+    { href: "#add", label: "Add", icon: Plus, isAction: true },
+    { href: "/dashboard/goals", label: "Goals", icon: Target },
+    { href: "/dashboard/sms-review", label: "SMS", icon: MessageSquare, isSms: true },
+    activeTrip 
+      ? { href: "/dashboard/travel", label: "Travel", icon: Plane } 
+      : { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  ];
 
   return (
     <>

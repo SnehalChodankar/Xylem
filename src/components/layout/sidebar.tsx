@@ -18,6 +18,7 @@ import {
   Repeat,
   MessageSquare,
   Sparkles,
+  Plane,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 
@@ -27,6 +28,7 @@ const mainNavItems = [
   { href: "/dashboard/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/dashboard/subscriptions", label: "Subscriptions", icon: Repeat },
   { href: "/dashboard/goals", label: "Goals", icon: Target },
+  { href: "/dashboard/travel", label: "Travel", icon: Plane },
   { href: "/dashboard/budgets", label: "Budgets", icon: PieChart },
   { href: "/dashboard/analytics", label: "Analytics", icon: PieChart },
 ];

@@ -13,6 +13,8 @@ export interface Transaction {
   recurring_id?: string;
   import_source?: "manual" | "csv_upload" | "pdf_upload";
   import_hash?: string;
+  trip_id?: string | null;
+  exclude_from_ledger?: boolean;
   created_at?: string;
   updated_at?: string;
   category?: Category;
@@ -148,5 +150,18 @@ export interface Goal {
   current_amount: number;
   deadline?: string | null;
   is_completed: boolean;
+  created_at?: string;
+}
+
+export interface Trip {
+  id: string;
+  user_id?: string;
+  name: string;
+  destination?: string | null;
+  budget?: number | null;
+  start_date: string;
+  end_date?: string | null;
+  is_active: boolean;
+  is_paused?: boolean;
   created_at?: string;
 }

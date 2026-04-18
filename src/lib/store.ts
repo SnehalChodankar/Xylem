@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule, SmsTransaction, SmsSenderMapping, Goal } from "./types";
+import { Transaction, Category, Account, Budget, RecurringTransaction, Notification, CategoryRule, SmsTransaction, SmsSenderMapping, Goal, Trip } from "./types";
 import { DEFAULT_CATEGORIES } from "./demo-data";
 import { createClient } from "./supabase/client";
 
@@ -47,6 +47,8 @@ interface AppState {
   smsTransactions: SmsTransaction[];
   smsSenderMappings: SmsSenderMapping[];
   goals: Goal[];
+  trips: Trip[];
+  activeTrip: Trip | null;
 
   // ── UI state ──
   selectedMonth: number;
@@ -115,6 +117,16 @@ interface AppState {
   redeemGoal: (goalId: string, amount: number, description: string, categoryId?: string) => Promise<void>;
   getAccountGoalStats: (accountId: string) => { allocated: number; free: number };
 
+  // ── actions: travel mode ──
+  createTrip: (trip: Omit<Trip, "id" | "user_id" | "created_at" | "is_active" | "is_paused">) => Promise<void>;
+  endTrip: (tripId: string) => Promise<void>;
+  pauseTrip: (tripId: string) => Promise<void>;
+  resumeTrip: (tripId: string) => Promise<void>;
+  deleteTrip: (tripId: string) => Promise<void>;
+  logTripToLedger: (tripId: string) => Promise<void>;
+  getTripTransactions: (tripId: string) => Transaction[];
+  getTripStats: (tripId: string) => { total: number; daily: number; count: number; byCategory: { name: string; icon: string; color: string; amount: number }[] };
+
   // ── computed ──
   getFilteredTransactions: (month: number, year: number) => Transaction[];
   getMonthlyStats: (month: number, year: number) => MonthlyStats;
@@ -139,6 +151,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   smsTransactions: [],
   smsSenderMappings: [],
   goals: [],
+  trips: [],
+  activeTrip: null,
   selectedMonth: currentMonth,
   selectedYear: currentYear,
   isDarkMode: true,
@@ -159,7 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     supabase.from("sms_transactions").delete()
       .eq("user_id", userId).eq("status", "rejected").lt("created_at", thirtyDaysAgo);
 
-    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes, smsRes, mappingRes, goalsRes] = await Promise.all([
+    const [txRes, catRes, accRes, budRes, recRes, notRes, ruleRes, smsRes, mappingRes, goalsRes, tripsRes] = await Promise.all([
       supabase.from("transactions").select("*").eq("user_id", userId).order("date", { ascending: false }),
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
       supabase.from("accounts").select("*").eq("user_id", userId),
@@ -170,6 +184,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       fetch("/api/sms").then(res => res.json()), // Secure API fetch with server-side AES decryption
       supabase.from("sms_sender_mappings").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
       supabase.from("goals").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("trips").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
@@ -225,6 +240,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       smsTransactions,
       smsSenderMappings,
       goals: (goalsRes.data ?? []) as Goal[],
+      trips: (tripsRes.data ?? []) as Trip[],
+      activeTrip: ((tripsRes.data ?? []) as Trip[]).find(t => t.is_active && !t.end_date) || null,
       isLoading: false,
     });
   },
@@ -254,11 +271,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ── Transactions ──────────────────────────────────────────
   addTransaction: async (txn) => {
-    const { userId } = get();
+    const { userId, activeTrip } = get();
     if (!userId) return;
+
+    // Auto-tag with active trip (if not paused)
+    const tripTagged = (activeTrip && !activeTrip.is_paused && !txn.trip_id)
+      ? { ...txn, user_id: userId, trip_id: activeTrip.id, exclude_from_ledger: txn.exclude_from_ledger ?? true }
+      : { ...txn, user_id: userId };
+
     const { data, error } = await supabase
       .from("transactions")
-      .insert({ ...txn, user_id: userId })
+      .insert(tripTagged)
       .select()
       .single();
     if (!error && data) {
@@ -542,6 +565,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Computed ──────────────────────────────────────────────
   getFilteredTransactions: (month, year) => {
     return get().transactions.filter((t) => {
+      if (t.exclude_from_ledger) return false;
       const d = new Date(t.date);
       return d.getMonth() + 1 === month && d.getFullYear() === year;
     });
@@ -599,7 +623,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return 0;
 
-    const accountTxns = transactions.filter((t) => t.account_id === accountId);
+    // Exclude travel-only transactions from balance computation
+    const accountTxns = transactions.filter((t) => t.account_id === accountId && !t.exclude_from_ledger);
     const totalCredits = accountTxns
       .filter((t) => t.type === "credit")
       .reduce((sum, t) => sum + t.amount, 0);
@@ -802,5 +827,151 @@ export const useAppStore = create<AppState>((set, get) => ({
       .reduce((sum, g) => sum + g.current_amount, 0);
     const liveBalance = getLiveAccountBalance(accountId);
     return { allocated, free: Math.max(0, liveBalance - allocated) };
+  },
+
+  // ── Travel Mode ──────────────────────────────────────────────────────────
+  createTrip: async (trip) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("trips")
+      .insert({ ...trip, user_id: userId, is_active: true, is_paused: false })
+      .select()
+      .single();
+
+    if (!error && data) {
+      const newTrip = data as Trip;
+      set((s) => ({
+        trips: [newTrip, ...s.trips],
+        activeTrip: newTrip,
+      }));
+    } else if (error) {
+      console.error("Failed to create trip:", error);
+    }
+  },
+
+  endTrip: async (tripId) => {
+    const endDate = new Date().toISOString().split("T")[0];
+    const { error } = await supabase
+      .from("trips")
+      .update({ is_active: false, is_paused: false, end_date: endDate })
+      .eq("id", tripId);
+
+    if (!error) {
+      set((s) => ({
+        trips: s.trips.map((t) =>
+          t.id === tripId ? { ...t, is_active: false, is_paused: false, end_date: endDate } : t
+        ),
+        activeTrip: s.activeTrip?.id === tripId ? null : s.activeTrip,
+      }));
+    } else {
+      console.error("Failed to end trip:", error);
+    }
+  },
+
+  pauseTrip: async (tripId) => {
+    const { error } = await supabase
+      .from("trips")
+      .update({ is_paused: true })
+      .eq("id", tripId);
+
+    if (!error) {
+      set((s) => ({
+        trips: s.trips.map((t) =>
+          t.id === tripId ? { ...t, is_paused: true } : t
+        ),
+        activeTrip: s.activeTrip?.id === tripId ? { ...s.activeTrip, is_paused: true } : s.activeTrip,
+      }));
+    }
+  },
+
+  resumeTrip: async (tripId) => {
+    const { error } = await supabase
+      .from("trips")
+      .update({ is_paused: false })
+      .eq("id", tripId);
+
+    if (!error) {
+      set((s) => ({
+        trips: s.trips.map((t) =>
+          t.id === tripId ? { ...t, is_paused: false } : t
+        ),
+        activeTrip: s.activeTrip?.id === tripId ? { ...s.activeTrip, is_paused: false } : s.activeTrip,
+      }));
+    }
+  },
+
+  deleteTrip: async (tripId) => {
+    // Also clean up trip-tagged transactions
+    await supabase.from("transactions").update({ trip_id: null }).eq("trip_id", tripId);
+    const { error } = await supabase.from("trips").delete().eq("id", tripId);
+
+    if (!error) {
+      set((s) => ({
+        trips: s.trips.filter((t) => t.id !== tripId),
+        transactions: s.transactions.map((t) =>
+          t.trip_id === tripId ? { ...t, trip_id: null } : t
+        ),
+        activeTrip: s.activeTrip?.id === tripId ? null : s.activeTrip,
+      }));
+    }
+  },
+
+  logTripToLedger: async (tripId) => {
+    // Bulk update: set exclude_from_ledger = false for all trip transactions
+    const { error } = await supabase
+      .from("transactions")
+      .update({ exclude_from_ledger: false })
+      .eq("trip_id", tripId);
+
+    if (!error) {
+      set((s) => ({
+        transactions: s.transactions.map((t) =>
+          t.trip_id === tripId ? { ...t, exclude_from_ledger: false } : t
+        ),
+      }));
+    } else {
+      console.error("Failed to log trip to ledger:", error);
+    }
+  },
+
+  getTripTransactions: (tripId) => {
+    return get().transactions.filter((t) => t.trip_id === tripId);
+  },
+
+  getTripStats: (tripId) => {
+    const { transactions, categories } = get();
+    const tripTxns = transactions.filter((t) => t.trip_id === tripId && t.type === "debit");
+    const total = tripTxns.reduce((s, t) => s + t.amount, 0);
+    const count = tripTxns.length;
+
+    // Calculate days
+    const trip = get().trips.find((t) => t.id === tripId);
+    const startDate = trip ? new Date(trip.start_date) : new Date();
+    const endDate = trip?.end_date ? new Date(trip.end_date) : new Date();
+    const days = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+    const daily = total / days;
+
+    // Category breakdown
+    const catMap = new Map<string, number>();
+    tripTxns.forEach((t) => {
+      const key = t.category_id || "uncategorized";
+      catMap.set(key, (catMap.get(key) || 0) + t.amount);
+    });
+
+    const byCategory = Array.from(catMap.entries())
+      .map(([catId, amount]) => {
+        const cat = categories.find((c) => c.id === catId);
+        return {
+          name: cat?.name || "Uncategorized",
+          icon: cat?.icon || "📦",
+          color: cat?.color || "#94a3b8",
+          amount,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+
+    return { total, daily, count, byCategory };
   },
 }));

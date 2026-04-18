@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Header } from "@/components/layout/header";
 import { DisclaimerDialog } from "@/components/layout/disclaimer-dialog";
+import { TravelBanner } from "@/components/travel/travel-banner";
 import { Loader2 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -105,6 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
+        <TravelBanner />
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-6">
           {isLoading ? (
             <div className="flex h-full items-center justify-center">
