@@ -222,7 +222,7 @@ export default function SettingsPage() {
             {/* SMS Toggle */}
             <div className="flex items-center justify-between">
               <div className="flex-1 pr-4">
-                <p className="text-sm font-bold flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> SMS Auto-Tracking</p>
+                <p className="text-sm font-bold flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> Native SMS Sync Integration</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {smsSenderMappings.length === 0
                     ? "Add sender mappings below before enabling."
@@ -244,7 +244,7 @@ export default function SettingsPage() {
             {smsEnabled && (
               <div className="space-y-2">
                 <p className="text-[10px] uppercase font-bold text-emerald-500 flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Service Active
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Plugin Ready
                 </p>
                 <button
                   onClick={testSmsWebhook}

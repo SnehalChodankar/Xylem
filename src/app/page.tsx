@@ -44,6 +44,9 @@ export default function Home() {
                 <p className="text-[11px] text-muted-foreground mt-4 font-medium uppercase tracking-wider">
                     Requires Android 8.0+
                 </p>
+                <p className="text-[10px] text-muted-foreground/70 mt-2 text-balance px-2 leading-relaxed">
+                    Note: Play Protect may flag this sideloaded app due to its SMS Sync permissions. Tap <b>"More details"</b> ➔ <b>"Install anyway"</b> to proceed safely.
+                </p>
             </DialogContent>
         </Dialog>
       </div>

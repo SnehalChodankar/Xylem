@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, MessageSquare, ChevronDown, ChevronUp, Inbox, RefreshCcw, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, MessageSquare, ChevronDown, ChevronUp, Inbox, RefreshCcw, Loader2, X } from "lucide-react";
 import { formatCurrency } from "@/lib/helpers";
 import { createClient } from "@/lib/supabase/client";
 import { Capacitor, registerPlugin } from "@capacitor/core";
@@ -19,12 +19,13 @@ export default function SmsReviewPage() {
   const { smsTransactions, accounts, categories, approveSmsTransaction, rejectSmsTransaction, fetchData } = useAppStore();
   const pending = smsTransactions.filter((t) => t.status === "pending");
   const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
 
   const handleSync = async () => {
     try {
       setSyncing(true);
       if (!Capacitor.isNativePlatform()) {
-        alert("SMS sync is only available natively on Android.");
+        setSyncMessage({ type: 'error', text: "SMS sync is only available natively on the Android app." });
         setSyncing(false);
         return;
       }
@@ -36,7 +37,7 @@ export default function SmsReviewPage() {
       const messages = result.messages || [];
 
       if (messages.length === 0) {
-        alert("No SMS found in your inbox for today.");
+        setSyncMessage({ type: 'success', text: "No bank SMS found in your inbox for today." });
         setSyncing(false);
         return;
       }
@@ -61,10 +62,13 @@ export default function SmsReviewPage() {
       // Refresh store to pull newly inserted pending SMS
       await fetchData();
       
-      alert(`Successfully scanned ${messages.length} SMS. Discovered ${data.count || 0} valid banking transactions.`);
+      setSyncMessage({ 
+        type: 'success', 
+        text: `Successfully scanned ${messages.length} SMS. Discovered ${data.count || 0} valid banking transactions.` 
+      });
     } catch (err: any) {
       console.error(err);
-      alert("Failed to sync SMS: " + err.message);
+      setSyncMessage({ type: 'error', text: "Failed to sync SMS: " + err.message });
     } finally {
       setSyncing(false);
     }
@@ -72,7 +76,7 @@ export default function SmsReviewPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-primary" />
@@ -82,11 +86,20 @@ export default function SmsReviewPage() {
             Review bank SMS transactions before adding them to your ledger.
           </p>
         </div>
-        <Button onClick={handleSync} disabled={syncing} className="rounded-xl font-semibold gap-2 border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 shadow-none">
+        <Button onClick={handleSync} disabled={syncing} className="rounded-xl font-bold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-md">
           {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-          <span className="hidden sm:inline">Sync Today</span>
+          Sync Today's SMS
         </Button>
       </div>
+
+      {syncMessage && (
+        <div className={cn("p-4 rounded-xl border text-sm font-medium flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2", 
+          syncMessage.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+        )}>
+          <span>{syncMessage.text}</span>
+          <button onClick={() => setSyncMessage(null)}><X className="h-4 w-4 opacity-70 hover:opacity-100 transition-opacity" /></button>
+        </div>
+      )}
 
       {pending.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground space-y-3">
