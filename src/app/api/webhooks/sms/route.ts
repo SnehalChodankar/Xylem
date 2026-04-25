@@ -50,11 +50,15 @@ function generateDescription(msg: string, type: string): string {
 
 export async function POST(req: Request) {
   try {
+    const authHeader = req.headers.get("Authorization");
     const body = await req.json();
-    const { token, userId, messages: batchMessages, sender, message } = body;
+    
+    // Support Token from Header OR Body (legacy)
+    const token = authHeader ? authHeader.replace("Bearer ", "") : body.token;
+    const { messages: batchMessages, sender, message } = body;
 
-    if (!token || !userId) {
-      return NextResponse.json({ error: "Missing required token or userId." }, { status: 400 });
+    if (!token) {
+      return NextResponse.json({ error: "Missing authentication token." }, { status: 401 });
     }
 
     // Support both batch and legacy single-message payload
@@ -69,6 +73,16 @@ export async function POST(req: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: `Bearer ${token}` } }
     });
+
+    // CRITICAL SECURITY PATCH: Never trust the `userId` from the body payload!
+    // Always cryptographically verify the caller's identity via the JWT token.
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: "Invalid or expired token." }, { status: 401 });
+    }
+    
+    const userId = user.id;
 
     // 1. Fetch user rules and mappings for auto-categorization
     const { data: mappings } = await supabase.from('sms_sender_mappings').select('*').eq('user_id', userId);

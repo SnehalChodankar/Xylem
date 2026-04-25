@@ -48,10 +48,11 @@ export default function SmsReviewPage() {
 
       const res = await fetch("/api/webhooks/sms", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
         body: JSON.stringify({
-          token: session.access_token,
-          userId: session.user.id,
           messages
         })
       });
