@@ -15,10 +15,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { setUser, fetchData, seedDefaultCategories, isLoading, userId } = useAppStore();
 
   useEffect(() => {
-    // Request Native Notification Permissions (required for Android 13+)
+    // Request Native Notification Permissions (required for Android 13+) and schedule daily reminders
     import("@capacitor/core").then(({ Capacitor }) => {
       if (Capacitor.isNativePlatform()) {
-        LocalNotifications.requestPermissions().catch(console.error);
+        LocalNotifications.requestPermissions().then((result) => {
+          if (result.display === 'granted') {
+            LocalNotifications.schedule({
+              notifications: [
+                {
+                  title: "Update your Ledger",
+                  body: "Did you spend anything today? Take a minute to categorize your expenses!",
+                  id: 1,
+                  schedule: { on: { hour: 20, minute: 0 }, allowWhileIdle: true },
+                  smallIcon: "ic_stat_name", // Optional: uses default app icon if not specified
+                },
+                {
+                  title: "End of Day Review",
+                  body: "Don't forget to sync today's SMS to keep your tracker perfectly balanced.",
+                  id: 2,
+                  schedule: { on: { hour: 21, minute: 0 }, allowWhileIdle: true },
+                  smallIcon: "ic_stat_name",
+                }
+              ]
+            }).catch(console.error);
+          }
+        }).catch(console.error);
       }
     });
 

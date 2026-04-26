@@ -19,7 +19,7 @@ export default function SmsReviewPage() {
   const { smsTransactions, accounts, categories, approveSmsTransaction, rejectSmsTransaction, fetchData } = useAppStore();
   const pending = smsTransactions.filter((t) => t.status === "pending");
   const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const handleSync = async () => {
     try {
@@ -48,7 +48,7 @@ export default function SmsReviewPage() {
 
       const res = await fetch("/api/webhooks/sms", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
         },
@@ -62,10 +62,10 @@ export default function SmsReviewPage() {
 
       // Refresh store to pull newly inserted pending SMS
       await fetchData();
-      
-      setSyncMessage({ 
-        type: 'success', 
-        text: `Successfully scanned ${messages.length} SMS. Discovered ${data.count || 0} valid banking transactions.` 
+
+      setSyncMessage({
+        type: 'success',
+        text: `Successfully scanned ${messages.length} SMS. Discovered ${data.count || 0} valid banking transactions.`
       });
     } catch (err: any) {
       console.error(err);
@@ -94,7 +94,7 @@ export default function SmsReviewPage() {
       </div>
 
       {syncMessage && (
-        <div className={cn("p-4 rounded-xl border text-sm font-medium flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2", 
+        <div className={cn("p-4 rounded-xl border text-sm font-medium flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2",
           syncMessage.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
         )}>
           <span>{syncMessage.text}</span>
@@ -189,7 +189,7 @@ function SmsReviewCard({
             "text-lg font-bold tabular-nums",
             sms.type === "debit" ? "text-red-400" : "text-emerald-400"
           )}>
-            {sms.type === "debit" ? "-" : "+"}₹{formatCurrency(sms.amount)}
+            {sms.type === "debit" ? "-" : "+"}{formatCurrency(sms.amount)}
           </span>
         </div>
 
