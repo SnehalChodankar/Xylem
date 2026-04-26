@@ -44,9 +44,14 @@ export default function Home() {
                 <p className="text-[11px] text-muted-foreground mt-4 font-medium uppercase tracking-wider">
                     Requires Android 8.0+
                 </p>
-                <p className="text-[10px] text-muted-foreground/70 mt-2 text-balance px-2 leading-relaxed">
-                    Note: Play Protect may flag this sideloaded app due to its SMS Sync permissions. Tap <b>"More details"</b> ➔ <b>"Install anyway"</b> to proceed safely.
-                </p>
+                <div className="text-[10px] text-muted-foreground/70 mt-2 text-left px-2 leading-relaxed space-y-1.5 border border-amber-500/20 bg-amber-500/5 rounded-lg p-2.5">
+                    <p>
+                        <b>Note:</b> Play Protect may flag this sideloaded app due to SMS Sync permissions. Tap <b>"More details"</b> ➔ <b>"Install anyway"</b>.
+                    </p>
+                    <p>
+                        <b className="text-amber-500/80">Install blocked?</b> On newer Android devices, you may need to temporarily pause <i>Google Play Protect</i> in your device settings to allow the installation.
+                    </p>
+                </div>
             </DialogContent>
         </Dialog>
       </div>
