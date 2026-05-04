@@ -188,6 +188,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
+    
+    // Deduplicate categories by name to prevent UI dropdown bugs if database got double-seeded
+    const rawCategories = (catRes.data ?? []) as Category[];
+    const categories = rawCategories.filter((cat, index, self) => 
+      index === self.findIndex((c) => c.name === cat.name)
+    );
+
     let notifications = (notRes.data ?? []) as Notification[];
     const categoryRules = (ruleRes.data ?? []) as CategoryRule[];
     const smsTransactions = (smsRes.data ?? []) as SmsTransaction[];
@@ -217,7 +224,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           user_id: userId,
           title: "Unusual Spend Spike",
           message: `Your spending this week (₹${currentWeekSpend.toFixed(0)}) is significantly higher than last week (₹${previousWeekSpend.toFixed(0)}).`,
-          type: "info",
+          type: "info" as const,
           action_url: "/dashboard/analytics",
           is_read: false
         };
@@ -231,7 +238,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({
       transactions,
-      categories: (catRes.data ?? []) as Category[],
+      categories,
       accounts: (accRes.data ?? []) as Account[],
       budgets: (budRes.data ?? []) as Budget[],
       recurring_transactions: (recRes.data ?? []) as RecurringTransaction[],
@@ -260,7 +267,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     const { data } = await supabase.from("categories").insert(toInsert).select();
-    if (data) set({ categories: data as Category[] });
+    if (data) {
+      const fetched = data as Category[];
+      const unique = fetched.filter((cat, index, self) => index === self.findIndex((c) => c.name === cat.name));
+      set({ categories: unique });
+    }
   },
 
   // ── UI ────────────────────────────────────────────────────

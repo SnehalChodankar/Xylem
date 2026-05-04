@@ -27,6 +27,11 @@ ALTER TABLE public.recurring_transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can only see their own recurring records" ON public.recurring_transactions
     FOR ALL USING (auth.uid() = user_id);
 
+-- 0.5 Ensure the transactions table supports recurring linking
+ALTER TABLE public.transactions 
+ADD COLUMN IF NOT EXISTS is_recurring boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS recurring_id UUID REFERENCES public.recurring_transactions(id) ON DELETE SET NULL;
+
 -- 1. Ensure the GLOBAL NOTIFICATIONS table exists!
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
