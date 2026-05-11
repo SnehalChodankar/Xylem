@@ -9,7 +9,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { Header } from "@/components/layout/header";
 import { DisclaimerDialog } from "@/components/layout/disclaimer-dialog";
 import { TravelBanner } from "@/components/travel/travel-banner";
-import { Loader2 } from "lucide-react";
+import { SplashLoader } from "@/components/layout/splash-loader";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { setUser, fetchData, seedDefaultCategories, isLoading, userId } = useAppStore();
@@ -111,14 +111,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [userId, fetchData, seedDefaultCategories]);
 
   if (isLoading && !userId) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm font-medium">Loading your finances…</p>
-        </div>
-      </div>
-    );
+    return <SplashLoader />;
   }
 
   return (
@@ -130,9 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TravelBanner />
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-6">
           {isLoading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
+            <SplashLoader />
           ) : (
             children
           )}
