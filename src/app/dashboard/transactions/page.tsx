@@ -2,14 +2,16 @@
 
 import { useState, useMemo } from "react";
 import { useAppStore } from "@/lib/store";
+import { Transaction } from "@/lib/types";
 import { formatCurrency, formatDate, getRelativeDate } from "@/lib/helpers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Search, Filter, Trash2, Plus, Edit3, ChevronDown } from "lucide-react";
+import { Search, Trash2, Plus, Pencil } from "lucide-react";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
+import { EditTransactionDialog } from "@/components/transactions/edit-transaction-dialog";
 
 export default function TransactionsPage() {
   const { selectedMonth, selectedYear, getFilteredTransactions, categories, accounts, deleteTransaction } = useAppStore();
@@ -20,6 +22,7 @@ export default function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
 
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter((t) => {
@@ -67,6 +70,7 @@ export default function TransactionsPage() {
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
       <AddTransactionDialog open={addOpen} onOpenChange={setAddOpen} />
+      <EditTransactionDialog open={!!editingTxn} onOpenChange={(open) => { if (!open) setEditingTxn(null); }} transaction={editingTxn} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -170,16 +174,18 @@ export default function TransactionsPage() {
                     return (
                       <div
                         key={txn.id}
-                        onClick={() => toggleSelect(txn.id)}
                         className={cn(
-                          "flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors",
+                          "flex items-center gap-3 px-4 py-3 transition-colors group",
                           isSelected ? "bg-primary/5" : "hover:bg-accent/30"
                         )}
                       >
-                        <div className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-xl text-base flex-shrink-0 transition-colors",
-                          isSelected ? "bg-primary/20" : "bg-muted"
-                        )}>
+                        <div
+                          onClick={() => toggleSelect(txn.id)}
+                          className={cn(
+                            "flex h-10 w-10 items-center justify-center rounded-xl text-base flex-shrink-0 transition-colors cursor-pointer",
+                            isSelected ? "bg-primary/20" : "bg-muted"
+                          )}
+                        >
                           {cat?.icon || (txn.type === "credit" ? "💰" : "💸")}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -198,6 +204,16 @@ export default function TransactionsPage() {
                             )}
                           </div>
                         </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingTxn(txn);
+                          }}
+                          className="p-1.5 rounded-lg text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all flex-shrink-0"
+                          title="Edit transaction"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
                         <span className={cn(
                           "text-sm font-bold tabular-nums whitespace-nowrap",
                           txn.type === "credit" ? "text-emerald-500" : "text-red-500"
