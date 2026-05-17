@@ -56,16 +56,38 @@ export function ScanReceiptDialog({
     setSaving(false);
   };
 
+  // Compress image on client before sending to API to avoid body size limits
+  const compressImage = (dataUrl: string, maxWidth = 1024, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height;
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = dataUrl;
+    });
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Convert to base64
     const reader = new FileReader();
     reader.onloadend = async () => {
-      const base64 = reader.result as string;
-      setImagePreview(base64);
-      await processImage(base64);
+      const rawBase64 = reader.result as string;
+      const compressed = await compressImage(rawBase64);
+      setImagePreview(compressed);
+      await processImage(compressed);
     };
     reader.readAsDataURL(file);
   };

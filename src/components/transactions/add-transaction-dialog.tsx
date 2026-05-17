@@ -40,6 +40,28 @@ export function AddTransactionDialog({
     });
   }, []);
 
+  // Compress image on client before sending to API to avoid body size limits
+  const compressImage = (dataUrl: string, maxWidth = 1024, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height;
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = dataUrl;
+    });
+  };
+
   const handleCameraScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -48,13 +70,16 @@ export function AddTransactionDialog({
     const reader = new FileReader();
     reader.onloadend = async () => {
       try {
-        const base64 = reader.result as string;
+        const rawBase64 = reader.result as string;
+        // Compress: resize to max 1024px wide, 70% JPEG quality (~100-200KB)
+        const compressed = await compressImage(rawBase64);
         const res = await fetch("/api/ocr", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: base64 }),
+          body: JSON.stringify({ image: compressed }),
         });
         const result = await res.json();
+        if (result.error) throw new Error(result.error);
         if (result.data) {
           setAmount(String(result.data.amount || ""));
           setDescription(result.data.description || "");
@@ -71,8 +96,9 @@ export function AddTransactionDialog({
             if (match) setCategoryId(match.id);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Scan failed:", err);
+        setNotes(`Scan failed: ${err.message || "Unknown error"}`);
       } finally {
         setScanning(false);
         // Reset the input so the same file can be re-selected
