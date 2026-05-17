@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Search, Trash2, Plus, Pencil } from "lucide-react";
+import { Search, Trash2, Plus, Pencil, ScanLine } from "lucide-react";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
 import { EditTransactionDialog } from "@/components/transactions/edit-transaction-dialog";
+import { ScanReceiptDialog } from "@/components/transactions/scan-receipt-dialog";
 
 export default function TransactionsPage() {
   const { selectedMonth, selectedYear, getFilteredTransactions, categories, accounts, deleteTransaction } = useAppStore();
@@ -23,6 +24,7 @@ export default function TransactionsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter((t) => {
@@ -71,6 +73,7 @@ export default function TransactionsPage() {
     <div className="p-4 lg:p-6 space-y-5 max-w-5xl mx-auto">
       <AddTransactionDialog open={addOpen} onOpenChange={setAddOpen} />
       <EditTransactionDialog open={!!editingTxn} onOpenChange={(open) => { if (!open) setEditingTxn(null); }} transaction={editingTxn} />
+      <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -80,9 +83,14 @@ export default function TransactionsPage() {
             {filteredTransactions.length} transactions
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)} size="sm" className="rounded-xl gap-1.5">
-          <Plus className="h-4 w-4" /> Add
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setScanOpen(true)} size="sm" variant="outline" className="rounded-xl gap-1.5">
+            <ScanLine className="h-4 w-4" /> Scan
+          </Button>
+          <Button onClick={() => setAddOpen(true)} size="sm" className="rounded-xl gap-1.5">
+            <Plus className="h-4 w-4" /> Add
+          </Button>
+        </div>
       </div>
 
       {/* Summary Bar */}
