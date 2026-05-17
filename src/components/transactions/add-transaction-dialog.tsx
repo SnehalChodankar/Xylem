@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Loader2, Plane } from "lucide-react";
+import { Loader2, Plane, Camera } from "lucide-react";
 
 export function AddTransactionDialog({
   open,
@@ -30,6 +30,57 @@ export function AddTransactionDialog({
   const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
   const [logToLedger, setLogToLedger] = useState(false); // default to trip-only
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [isNative, setIsNative] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    import("@capacitor/core").then(({ Capacitor }) => {
+      setIsNative(Capacitor.isNativePlatform());
+    });
+  }, []);
+
+  const handleCameraScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanning(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64 = reader.result as string;
+        const res = await fetch("/api/ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64 }),
+        });
+        const result = await res.json();
+        if (result.data) {
+          setAmount(String(result.data.amount || ""));
+          setDescription(result.data.description || "");
+          setDate(result.data.date || new Date().toISOString().split("T")[0]);
+          setType(result.data.type === "credit" ? "credit" : "debit");
+          setPaymentMethod("Cash");
+          setNotes(result.data.merchant ? `Scanned — ${result.data.merchant}` : "Scanned from receipt");
+          // Try auto-match category
+          if (result.data.category_hint) {
+            const hint = result.data.category_hint.toLowerCase();
+            const match = categories.find(
+              (c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase())
+            );
+            if (match) setCategoryId(match.id);
+          }
+        }
+      } catch (err) {
+        console.error("Scan failed:", err);
+      } finally {
+        setScanning(false);
+        // Reset the input so the same file can be re-selected
+        if (cameraInputRef.current) cameraInputRef.current.value = "";
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const filteredCategories = categories.filter(
     (c) => c.type === (type === "debit" ? "expense" : "income") || c.type === "both"
@@ -121,7 +172,32 @@ export function AddTransactionDialog({
           <DialogTitle className="text-lg font-bold">Add Transaction</DialogTitle>
         </DialogHeader>
 
+        {/* Hidden camera input — directly opens rear camera on mobile */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleCameraScan}
+          className="hidden"
+        />
+
         <form onSubmit={handleSubmit} className="space-y-5 pt-2">
+          {/* Scan Receipt — mobile only */}
+          {isNative && (
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={scanning}
+              className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl border-2 border-dashed border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-500 font-semibold text-sm transition-all"
+            >
+              {scanning ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt...</>
+              ) : (
+                <><Camera className="h-4 w-4" /> Scan Receipt with Camera</>
+              )}
+            </button>
+          )}
           {/* Travel Mode Banner */}
           {activeTrip && !activeTrip.is_paused && (
             <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-3">
