@@ -41,7 +41,7 @@ export function AddTransactionDialog({
   }, []);
 
   // Compress image on client before sending to API to avoid body size limits
-  const compressImage = (dataUrl: string, maxWidth = 1024, quality = 0.7): Promise<string> => {
+  const compressImage = (dataUrl: string, maxWidth = 768, quality = 0.6): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {

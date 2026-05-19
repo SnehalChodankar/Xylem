@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       return NextResponse.json(
-        { error: "GOOGLE_GENERATIVE_AI_API_KEY is not configured." },
+        { error: "AI API key is not configured. Contact the admin." },
         { status: 500 }
       );
     }
@@ -41,8 +41,9 @@ export async function POST(req: Request) {
     // The AI SDK accepts a full data URL directly
     const dataUrl = image.includes("data:") ? image : `data:image/jpeg;base64,${image}`;
 
+    // Use gemini-2.0-flash-lite for lower token usage and better quota efficiency
     const result = await generateText({
-      model: google("gemini-2.0-flash"),
+      model: google("gemini-2.0-flash-lite"),
       messages: [
         {
           role: "user",
@@ -53,29 +54,12 @@ export async function POST(req: Request) {
             },
             {
               type: "text",
-              text: `You are a receipt/bill OCR assistant for an Indian personal finance tracker called Xylem Finance.
-
-Analyze this receipt or bill image and extract the following information. Return ONLY a valid JSON object with these fields:
-
-{
-  "amount": <number — the total amount paid, as a plain number without currency symbols>,
-  "description": "<string — a short, clean description like 'Dinner at Pizza Hut' or 'Grocery shopping at DMart'>",
-  "date": "<string — the date in YYYY-MM-DD format. If not visible, use today's date: ${new Date().toISOString().split("T")[0]}>",
-  "type": "<string — 'debit' for expenses/purchases, 'credit' for refunds/income>",
-  "merchant": "<string — the merchant/store name if visible, otherwise empty string>",
-  "category_hint": "<string — one of: Food, Groceries, Transport, Shopping, Entertainment, Health, Education, Bills, Travel, Other>"
-}
-
-RULES:
-- All monetary values should be in Indian Rupees (INR). If the receipt shows a different currency, still extract the number as-is.
-- If you cannot confidently extract a field, provide your best guess.
-- The description should be human-friendly and concise.
-- Return ONLY the JSON object, no markdown, no explanation.`,
+              text: `Extract receipt info as JSON: {"amount":<number>,"description":"<short merchant + what was bought>","date":"<YYYY-MM-DD or ${new Date().toISOString().split("T")[0]}>","type":"debit","merchant":"<name>","category_hint":"<Food|Groceries|Transport|Shopping|Entertainment|Health|Education|Bills|Travel|Other>"}. Return ONLY valid JSON, nothing else.`,
             },
           ],
         },
       ],
-      temperature: 0.1,
+      temperature: 0,
     });
 
     // Parse the JSON from Gemini's response
@@ -91,8 +75,19 @@ RULES:
     return NextResponse.json({ data: parsed });
   } catch (error: any) {
     console.error("OCR API Error:", error);
+    
+    const msg = error?.message || "";
+    
+    // Detect quota/rate limit errors specifically
+    if (msg.includes("429") || msg.includes("quota") || msg.includes("rate") || msg.includes("RESOURCE_EXHAUSTED")) {
+      return NextResponse.json(
+        { error: "Gemini API quota exceeded. Free tier resets daily at ~12:30 PM IST. Try again later or upgrade your API key at ai.google.dev." },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
-      { error: error.message || "Failed to process receipt." },
+      { error: msg || "Failed to process receipt." },
       { status: 500 }
     );
   }
