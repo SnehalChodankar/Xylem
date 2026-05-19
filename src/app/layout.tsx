@@ -16,6 +16,9 @@ export const metadata: Metadata = {
     "Track your monthly finances, categorize expenses, set budgets, upload bank statements, and gain insights into your spending patterns.",
   keywords: ["finance tracker", "budget", "expense tracker", "personal finance", "Xylem"],
   manifest: "/manifest.json",
+  verification: {
+    google: "TkykXRvkgHvrPUECLyvNmxk2ZIntAghLKIeQNhocr8Y",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
