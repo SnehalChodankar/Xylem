@@ -188,12 +188,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     ]);
 
     const transactions = (txRes.data ?? []) as Transaction[];
-    
-    // Deduplicate categories by name to prevent UI dropdown bugs if database got double-seeded
-    const rawCategories = (catRes.data ?? []) as Category[];
-    const categories = rawCategories.filter((cat, index, self) => 
-      index === self.findIndex((c) => c.name === cat.name)
-    );
+    const categories = (catRes.data ?? []) as Category[];
 
     let notifications = (notRes.data ?? []) as Notification[];
     const categoryRules = (ruleRes.data ?? []) as CategoryRule[];
@@ -257,6 +252,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { userId, categories } = get();
     if (!userId || categories.length > 0) return;
 
+    // Double-check against the database directly to prevent race conditions
+    const { count } = await supabase.from("categories").select("*", { count: "exact", head: true }).eq("user_id", userId);
+    if (count && count > 0) return;
+
     const toInsert = DEFAULT_CATEGORIES.map((c) => ({
       user_id: userId,
       name: c.name,
@@ -267,11 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     const { data } = await supabase.from("categories").insert(toInsert).select();
-    if (data) {
-      const fetched = data as Category[];
-      const unique = fetched.filter((cat, index, self) => index === self.findIndex((c) => c.name === cat.name));
-      set({ categories: unique });
-    }
+    if (data) set({ categories: data as Category[] });
   },
 
   // ── UI ────────────────────────────────────────────────────

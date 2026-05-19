@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { Loader2, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
 
 interface LoginFormProps {
   onToggleMode: () => void;
@@ -226,6 +226,43 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
               />
             </svg>
             Google
+          </Button>
+
+          {/* Demo Account */}
+          <div className="relative my-1">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-[#1e1e32] px-2 text-muted-foreground rounded">Or explore</span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              setEmail("demo@xylem.finance");
+              setPassword("demo1234");
+              setLoading(true);
+              setError(null);
+              const { error } = await supabase.auth.signInWithPassword({
+                email: "demo@xylem.finance",
+                password: "demo1234",
+              });
+              if (error) {
+                setError(error.message);
+                setLoading(false);
+              } else {
+                router.push("/dashboard");
+                router.refresh();
+              }
+            }}
+            disabled={loading}
+            className="w-full h-11 rounded-xl text-base font-semibold border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-500 hover:text-amber-400 transition-all"
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Try Demo Account
           </Button>
 
           <p className="text-center text-sm text-muted-foreground mt-2">
