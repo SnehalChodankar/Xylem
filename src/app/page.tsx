@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LoginForm } from "@/components/auth/login-form";
 import { SignupForm } from "@/components/auth/signup-form";
 import { ShieldCheck, TrendingUp, Users, CheckCircle2, Smartphone } from "lucide-react";
@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const [isLoginWalkthrough, setIsLoginWalkthrough] = useState(true);
+  const [userCount, setUserCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/stats").then(r => r.json()).then(d => setUserCount(d.count)).catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex w-full overflow-hidden relative">
@@ -85,7 +90,9 @@ export default function Home() {
               <Users className="h-6 w-6 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-foreground">10,000+ Active Users</h3>
+              <h3 className="text-lg font-bold text-foreground">
+                {userCount !== null ? `${userCount.toLocaleString()} Active User${userCount !== 1 ? 's' : ''}` : 'Growing Community'}
+              </h3>
               <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
                 Trusted globally. Our robust platform handles millions of transactions effortlessly.
               </p>
@@ -130,6 +137,13 @@ export default function Home() {
             <SignupForm onToggleMode={() => setIsLoginWalkthrough(true)} />
           )}
         </div>
+      </div>
+
+      {/* Footer - Privacy Policy */}
+      <div className="absolute bottom-4 left-0 right-0 flex justify-center z-20">
+        <a href="/privacy" className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+          Privacy Policy
+        </a>
       </div>
     </div>
   );
