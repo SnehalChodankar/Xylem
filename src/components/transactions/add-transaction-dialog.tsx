@@ -209,8 +209,8 @@ export function AddTransactionDialog({
         />
 
         <form onSubmit={handleSubmit} className="space-y-5 pt-2">
-          {/* Scan Receipt — mobile only */}
-          {isNative && (
+          {/* Scan Receipt — mobile only (Temporarily Disabled) */}
+          {/* {isNative && (
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
@@ -223,7 +223,7 @@ export function AddTransactionDialog({
                 <><Camera className="h-4 w-4" /> Scan Receipt with Camera</>
               )}
             </button>
-          )}
+          )} */}
           {/* Travel Mode Banner */}
           {activeTrip && !activeTrip.is_paused && (
             <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-3">

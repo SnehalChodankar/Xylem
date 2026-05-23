@@ -84,9 +84,9 @@ export default function TransactionsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setScanOpen(true)} size="sm" variant="outline" className="rounded-xl gap-1.5">
+          {/* <Button onClick={() => setScanOpen(true)} size="sm" variant="outline" className="rounded-xl gap-1.5">
             <ScanLine className="h-4 w-4" /> Scan
-          </Button>
+          </Button> */}
           <Button onClick={() => setAddOpen(true)} size="sm" className="rounded-xl gap-1.5">
             <Plus className="h-4 w-4" /> Add
           </Button>
