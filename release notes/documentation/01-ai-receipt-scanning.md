@@ -1,18 +1,23 @@
 # Feature: AI-Powered Receipt Scanning
 
 ## Overview
-The AI Receipt Scanning feature allows users to capture or upload images of receipts and bills. By leveraging Google's Gemini Vision AI model, the application automatically extracts relevant transaction data (amount, date, description, and inferred category) to streamline ledger entries and reduce manual typing.
+The AI Receipt Scanning feature allows users to capture or upload images of receipts and bills to automatically extract relevant transaction data (amount, date, description, and inferred category). This streamlines ledger entries and reduces manual typing. 
+
+It uses a highly optimized, three-tier hybrid engine to ensure speed, high accuracy (including handwriting), and near 100% uptime while preserving API quota.
 
 ## Key Technical Highlights
 
-### 1. Client-Side Image Compression
-To ensure rapid uploads and bypass standard API payload size limitations (like Vercel's 4.5MB body limit), the image is compressed natively on the client's browser using HTML5 Canvas before being sent to the OCR backend.
+### 1. The Hybrid OCR Engine
+The backend (`/api/ocr`) utilizes a three-tier pipeline:
+1. **Google Cloud Vision API:** The image is sent to the `DOCUMENT_TEXT_DETECTION` engine to extract raw, unformatted text. This has its own dedicated free quota (1,000/month) and handles crumpled or handwritten receipts exceptionally well.
+2. **Gemini Text-Only Parsing:** The raw text is passed to the lightweight `gemini-2.0-flash-lite` model. Because no image is passed, this step consumes roughly ~50 tokens per scan (a 40x reduction compared to Gemini Vision), formatting the chaotic text into clean JSON.
+3. **Regex Fallback:** If Gemini is unavailable or quota is exhausted, a custom Regular Expression fallback parser extracts amounts, dates, and infers merchants/categories directly from the Vision text, ensuring the feature never completely fails.
 
-### 2. AI SDK Integration
-The system interacts with the `/api/ocr` Next.js route, which wraps the Vercel AI SDK and the Gemini provider to perform zero-shot data extraction, forcing the output into a strict JSON schema.
+### 2. Client-Side Image Compression
+To ensure rapid uploads and bypass standard API payload size limitations, the image is compressed natively on the client's browser using HTML5 Canvas (max 768px width, 60% JPEG quality) before being sent to the OCR backend.
 
 ### 3. Auto-Categorization
-The AI returns a `category_hint` which the client intelligently cross-references with the user's existing personalized categories (stored in Zustand) to automatically select the most appropriate category icon.
+The backend returns a `category_hint` which the client intelligently cross-references with the user's existing personalized categories (stored in Zustand) to automatically select the most appropriate category icon.
 
 ## Key Code Structures
 
@@ -20,7 +25,7 @@ The AI returns a `category_hint` which the client intelligently cross-references
 
 ```tsx
 // 1. Client-Side Image Compression using Canvas
-const compressImage = (dataUrl: string, maxWidth = 1024, quality = 0.7): Promise<string> => {
+const compressImage = (dataUrl: string, maxWidth = 768, quality = 0.6): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
