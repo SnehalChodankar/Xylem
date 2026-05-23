@@ -1,73 +1,128 @@
-# Goal
+# OCR Revamp: Google Cloud Vision + Gemini Text Parsing
 
-Implement a smart Receipt Scanning (OCR) feature allowing users to take photos of paper receipts natively, extract transaction data using Google Gemini Vision AI, and pre-fill the "Add Transaction" modal for quick review and saving.
+Replace the current Gemini Vision-based OCR (which keeps hitting free tier quota) with a hybrid pipeline: **Google Cloud Vision API** for image-to-text extraction and **Gemini text-only** for smart structured parsing.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **API Key Setup Required:** 
-> This architecture uses **Google Gemini 1.5 Flash**, which has a generous free tier of 15 requests per minute and is extremely fast natively. You will need to go to Google AI Studio, generate a free API key, and add it to your `.env.local` file as `GEMINI_API_KEY=your_key_here`. 
+> **Google Cloud Setup Required** — You will need to enable the Cloud Vision API in your existing Google Cloud project and generate an API key. Detailed steps are provided below. No billing is required for the free tier (1,000 scans/month).
 
 > [!WARNING]
-> Since this uses native device hardware, we will install the `@capacitor/camera` plugin. You will need to run a Gradle sync in Android Studio and build a new APK to test this on your physical device. On the browser, it will fallback to a standard file-upload picker automatically.
+> The current `/api/ocr` route and both scan handlers in `add-transaction-dialog.tsx` and `scan-receipt-dialog.tsx` will be fully rewritten. The old Gemini Vision approach will be completely removed.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A["📷 Camera"] --> B["Compress\n(client-side)"]
+    B --> C["/api/ocr"]
+    C --> D["Google Cloud\nVision API"]
+    D --> E["Raw OCR Text"]
+    E --> F{"Gemini\navailable?"}
+    F -->|Yes| G["Gemini text-only\n~50 tokens"]
+    F -->|No/Quota| H["Regex Fallback\nParser"]
+    G --> I["Structured JSON"]
+    H --> I
+    I --> J["Pre-fill Form"]
+```
+
+### Why this is better
+
+| | Old (Gemini Vision) | New (Vision API + Gemini text) |
+|---|---|---|
+| **Image OCR** | Gemini (shared quota) | Cloud Vision API (separate 1,000 free/mo) |
+| **Tokens per scan** | ~2,000 (image) | ~50 (text only) |
+| **Handwriting** | ✅ Good | ✅ Excellent (DOCUMENT_TEXT_DETECTION) |
+| **Fallback** | ❌ None | ✅ Regex parser |
+| **Cost at scale** | Expensive | ~₹0.10/scan after free tier |
+
+---
+
+## Google Cloud Setup (One-Time)
+
+> [!NOTE]
+> You already have a Google Cloud project from your OAuth setup. These steps just enable an additional API.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Select your existing project (the one with OAuth configured)
+3. Navigate to **APIs & Services → Library**
+4. Search for **"Cloud Vision API"** → Click **Enable**
+5. Go to **APIs & Services → Credentials**
+6. Click **"Create Credentials" → "API Key"**
+7. **Restrict the key** (recommended):
+   - Click the key → **API restrictions** → **Restrict key**
+   - Select **"Cloud Vision API"** only
+8. Copy the API key
+9. Add to your environment:
+   - **`.env.local`**: `GOOGLE_CLOUD_VISION_API_KEY=your_key_here`
+   - **Vercel**: Project Settings → Environment Variables → Add `GOOGLE_CLOUD_VISION_API_KEY`
+
+---
 
 ## Proposed Changes
 
----
+### Backend API
 
-### Phase 1: Dependencies & Configuration
+#### [MODIFY] [route.ts](file:///d:/finance-tracker/src/app/api/ocr/route.ts)
 
-- Install `@capacitor/camera` for native photo capturing.
-- Install `@capacitor/pwa-elements` out-of-the-box UI for the camera on the web (for local browser testing).
-- Install `@google/genai` for the backend AI processing.
-- Add `import_source = "receipt_scan"` to the `Transaction` TypeScript type.
+Complete rewrite with the new hybrid pipeline:
 
-#### [MODIFY] src/lib/types.ts
-#### [MODIFY] android/app/src/main/AndroidManifest.xml (Add Camera permissions)
+1. **Step 1 — Vision API OCR**: Send the base64 image to `https://vision.googleapis.com/v1/images:annotate` with `DOCUMENT_TEXT_DETECTION` feature. Returns raw OCR text.
+2. **Step 2 — Smart Parsing (Gemini text-only)**: Send ONLY the extracted text (not the image) to `gemini-2.0-flash-lite` with a compact prompt. Uses ~50 tokens instead of ~2,000.
+3. **Step 3 — Regex Fallback**: If Gemini fails (quota/error), parse the OCR text using regex patterns to extract:
+   - Amount: matches `₹`, `Rs`, `INR`, `Total`, `Grand Total` followed by numbers
+   - Date: matches `DD/MM/YYYY`, `DD-MM-YYYY`, `YYYY-MM-DD` patterns
+   - Merchant: first non-empty line of OCR text (usually the store name)
+4. **Response**: Returns the same JSON structure as before — no frontend changes needed for the data contract.
 
----
-
-### Phase 2: AI Backend Processing Route
-
-We will keep the API keys hidden securely on the server.
-
-#### [NEW] src/app/api/ocr/route.ts
-- Create a Next.js API route that accepts a Base64 image payload.
-- Initialize the Gemini API client.
-- Prompt Gemini 1.5 Flash with strict JSON-mode instructions to extract:
-  - `amount` (number)
-  - `description` (string, the merchant name)
-  - `date` (ISO date string)
-  - `type` ("debit" or "credit")
-- Return the structured JSON to the app.
+New env var required: `GOOGLE_CLOUD_VISION_API_KEY`
 
 ---
 
-### Phase 3: UI & App Integration
+### Frontend Components
 
-We will add a "Scan Receipt" button to the main dashboard (perhaps next to the Add Transaction button). Clicking it opens the native camera. After the photo is taken, it sends it to the API, then seamlessly opens the existing `TransactionModal` pre-filled with the extracted data.
+#### [MODIFY] [add-transaction-dialog.tsx](file:///d:/finance-tracker/src/components/transactions/add-transaction-dialog.tsx)
 
-#### [NEW] src/components/dashboard/receipt-scanner.tsx
-- A wrapper component that handles opening the Capacitor Camera, showing a loading spinner while the API processes the image, and then triggering the store to open the Add Transaction modal with initial data.
+- Keep the existing `compressImage` and `handleCameraScan` functions
+- **No changes needed** — the frontend already calls `/api/ocr` and reads the same JSON response format
+- The only change: update the scanning status text from `"Scanning receipt..."` to `"Reading receipt..."` for accuracy
 
-#### [MODIFY] src/components/layout/header.tsx
-- Add a "Scan Receipt" camera icon button next to the "Add Transaction" button.
+#### [MODIFY] [scan-receipt-dialog.tsx](file:///d:/finance-tracker/src/components/transactions/scan-receipt-dialog.tsx)
 
-#### [MODIFY] src/components/dashboard/transaction-modal.tsx
-- Ensure the modal accurately accepts all pre-filled data (Amount, Date, Merchant description) and sets the `import_source` to `receipt_scan`.
+- **No changes needed** — same API contract, same response format
+- Update processing step text from `"Analyzing receipt with AI..."` to `"Reading receipt..."` for accuracy
 
-## Open Questions
+---
 
-1. Do you already have a Google Gemini API Key, or should I walk you through getting one once we are ready?
-2. Does injecting the extracted data directly into the existing "Add Transaction" dialog for review sound good, or did you want a dedicated "Bulk Receipt Review" screen like the SMS review feature? (Injecting it directly into the Add Transaction popup is usually much faster for 1-off paper receipts).
+### Environment
+
+#### [MODIFY] [.env.local](file:///d:/finance-tracker/.env.local)
+
+Add new variable:
+```
+GOOGLE_CLOUD_VISION_API_KEY=your_vision_api_key_here
+```
+
+---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `npm run build` to verify no TypeScript issues.
-- Verify the backend API returns valid JSON when fed a dummy base64 image.
+
+1. **TypeScript check**: `npx tsc --noEmit` — ensure no type errors
+2. **Build check**: `npm run build` — ensure production build succeeds
 
 ### Manual Verification
-- Add a dummy `GEMINI_API_KEY` locally.
-- Click "Scan Receipt" in the web browser -> it should open the web file picker/webcam.
-- Build the APK, tap the button -> it should open the Android Camera, take a picture, and pop up the Add dialog 3-4 seconds later perfectly pre-filled.
+
+1. **Printed receipt test**: Scan a thermal receipt from a restaurant/shop
+2. **Digital invoice test**: Screenshot an online order invoice
+3. **Handwritten test**: Scan a handwritten bill from a local vendor
+4. **Quota test**: Verify the scan works even when Gemini quota is exhausted (should fall back to regex)
+5. **Mobile test**: Rebuild APK and test the camera flow on Android
+
+### Expected Results
+
+- Printed receipts: amount, date, merchant should extract accurately
+- Handwritten receipts: amount should extract, merchant name is best-effort
+- Gemini unavailable: regex fallback should still extract amount and date at minimum
+- Response time: ~2-4 seconds (Vision API ~1-2s + Gemini ~1-2s or regex ~0s)

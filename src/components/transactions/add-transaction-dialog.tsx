@@ -218,7 +218,7 @@ export function AddTransactionDialog({
               className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl border-2 border-dashed border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-500 font-semibold text-sm transition-all"
             >
               {scanning ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt...</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reading receipt...</>
               ) : (
                 <><Camera className="h-4 w-4" /> Scan Receipt with Camera</>
               )}

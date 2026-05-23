@@ -206,7 +206,7 @@ export function ScanReceiptDialog({
             />
 
             <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-              Powered by Gemini AI Vision. Your image is processed securely and never stored.
+              Powered by Google Cloud Vision. Your image is processed securely and never stored.
             </p>
           </div>
         )}
@@ -219,7 +219,7 @@ export function ScanReceiptDialog({
             )}
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <span className="text-sm font-medium text-muted-foreground">Analyzing receipt with AI...</span>
+              <span className="text-sm font-medium text-muted-foreground">Reading receipt...</span>
             </div>
           </div>
         )}
