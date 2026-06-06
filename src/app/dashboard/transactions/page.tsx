@@ -194,14 +194,14 @@ export default function TransactionsPage() {
                             isSelected ? "bg-primary/20" : "bg-muted"
                           )}
                         >
-                          {cat?.icon || (txn.type === "credit" ? "💰" : "💸")}
+                          {cat?.icon || (txn.type === "credit" ? "💰" : txn.type === "transfer" ? "🔄" : "💸")}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{txn.description}</p>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            {cat && (
+                            {(cat || txn.type === "transfer") && (
                               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
-                                {cat.name}
+                                {cat?.name || "Self Transfer"}
                               </Badge>
                             )}
                             {txn.payment_method && (
@@ -224,9 +224,9 @@ export default function TransactionsPage() {
                         </button>
                         <span className={cn(
                           "text-sm font-bold tabular-nums whitespace-nowrap",
-                          txn.type === "credit" ? "text-emerald-500" : "text-red-500"
+                          txn.type === "credit" ? "text-emerald-500" : txn.type === "transfer" ? "text-muted-foreground" : "text-red-500"
                         )}>
-                          {txn.type === "credit" ? "+" : "−"}{formatCurrency(txn.amount)}
+                          {txn.type === "credit" ? "+" : txn.type === "transfer" ? "" : "−"}{formatCurrency(txn.amount)}
                         </span>
                       </div>
                     );

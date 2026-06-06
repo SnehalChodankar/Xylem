@@ -630,12 +630,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!account) return 0;
 
     // Exclude travel-only transactions from balance computation
-    const accountTxns = transactions.filter((t) => t.account_id === accountId && !t.exclude_from_ledger);
+    const accountTxns = transactions.filter(
+      (t) => (t.account_id === accountId || t.to_account_id === accountId) && !t.exclude_from_ledger
+    );
     const totalCredits = accountTxns
-      .filter((t) => t.type === "credit")
+      .filter((t) => t.type === "credit" || (t.type === "transfer" && t.to_account_id === accountId))
       .reduce((sum, t) => sum + t.amount, 0);
     const totalDebits = accountTxns
-      .filter((t) => t.type === "debit")
+      .filter((t) => t.type === "debit" || (t.type === "transfer" && t.account_id === accountId))
       .reduce((sum, t) => sum + t.amount, 0);
 
     return account.balance + totalCredits - totalDebits;

@@ -2,6 +2,7 @@ export interface Transaction {
   id: string;
   user_id?: string;
   account_id?: string;
+  to_account_id?: string | null;
   category_id?: string;
   type: "debit" | "credit" | "transfer";
   amount: number;
@@ -19,6 +20,7 @@ export interface Transaction {
   updated_at?: string;
   category?: Category;
   account?: Account;
+  to_account?: Account;
 }
 
 export interface Category {

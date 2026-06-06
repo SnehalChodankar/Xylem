@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
+import { TransferFundsDialog } from "@/components/transactions/transfer-funds-dialog";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +17,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { Plus, Pencil, Trash2, Wallet, GitCompareArrows, CheckCircle2, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Wallet, GitCompareArrows, CheckCircle2, AlertTriangle, ArrowUp, ArrowDown, ArrowRightLeft } from "lucide-react";
 
 export default function AccountsPage() {
   const { accounts, addAccount, updateAccount, deleteAccount, getLiveAccountBalance, reconcileAccount } = useAppStore();
@@ -37,6 +39,10 @@ export default function AccountsPage() {
   const [realBalanceInput, setRealBalanceInput] = useState("");
   const [reconciling, setReconciling] = useState(false);
   const [reconcileDone, setReconcileDone] = useState(false);
+
+  // ── Transfer dialog state ──
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferSourceId, setTransferSourceId] = useState<string | undefined>(undefined);
 
   const reconcileTarget = reconcileAccountId ? accounts.find((a) => a.id === reconcileAccountId) : null;
   const xylemBalance = reconcileAccountId ? getLiveAccountBalance(reconcileAccountId) : 0;
@@ -93,18 +99,34 @@ export default function AccountsPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-4xl mx-auto">
+      <TransferFundsDialog 
+        open={transferOpen} 
+        onOpenChange={(open) => { setTransferOpen(open); if (!open) setTransferSourceId(undefined); }} 
+        defaultSourceAccountId={transferSourceId} 
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Accounts</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage your financial accounts</p>
         </div>
-        <Button
-          onClick={() => { setEditId(null); setForm({ name: "", type: "bank", balance: "", icon: "🏦", color: "#3b82f6" }); setDialogOpen(true); }}
-          size="sm"
-          className="rounded-xl gap-1.5"
-        >
-          <Plus className="h-4 w-4" /> Add Account
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => { setTransferSourceId(undefined); setTransferOpen(true); }}
+            size="sm"
+            variant="outline"
+            className="rounded-xl gap-1.5"
+          >
+            <ArrowRightLeft className="h-4 w-4" /> Self Transfer
+          </Button>
+          <Button
+            onClick={() => { setEditId(null); setForm({ name: "", type: "bank", balance: "", icon: "🏦", color: "#3b82f6" }); setDialogOpen(true); }}
+            size="sm"
+            className="rounded-xl gap-1.5"
+          >
+            <Plus className="h-4 w-4" /> Add Account
+          </Button>
+        </div>
       </div>
 
       {/* Total Live Balance */}
@@ -144,6 +166,13 @@ export default function AccountsPage() {
                     </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => { setTransferSourceId(acc.id); setTransferOpen(true); }}
+                      title="Self Transfer"
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
+                    >
+                      <ArrowRightLeft className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => openReconcile(acc.id)}
                       title="Reconcile with bank"
