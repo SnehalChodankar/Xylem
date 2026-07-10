@@ -115,7 +115,11 @@ interface AppState {
   contributeToGoal: (goalId: string, amount: number) => Promise<void>;
   withdrawFromGoal: (goalId: string, amount: number) => Promise<void>;
   redeemGoal: (goalId: string, amount: number, description: string, categoryId?: string) => Promise<void>;
-  getAccountGoalStats: (accountId: string) => { allocated: number; free: number };
+  linkTransactionsToGoal: (goalId: string, transactionIds: string[]) => Promise<{ completed: boolean }>;
+  unlinkTransactionFromGoal: (transactionId: string) => Promise<void>;
+  getGoalLinkedTransactions: (goalId: string) => Transaction[];
+  getGoalUsedAmount: (goalId: string) => number;
+  getAccountGoalStats: (accountId: string) => { allocated: number; used: number; available: number; free: number };
 
   // ── actions: travel mode ──
   createTrip: (trip: Omit<Trip, "id" | "user_id" | "created_at" | "is_active" | "is_paused">) => Promise<void>;
@@ -828,13 +832,81 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  linkTransactionsToGoal: async (goalId, transactionIds) => {
+    const { goals, transactions, updateGoal } = get();
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal || transactionIds.length === 0) return { completed: false };
+
+    // Update transactions in Supabase
+    const { error } = await supabase
+      .from("transactions")
+      .update({ goal_id: goalId })
+      .in("id", transactionIds);
+
+    if (error) return { completed: false };
+
+    // Update local state
+    set((s) => ({
+      transactions: s.transactions.map((t) =>
+        transactionIds.includes(t.id) ? { ...t, goal_id: goalId } : t
+      ),
+    }));
+
+    // Check if total linked amount now meets or exceeds target
+    const currentLinked = transactions
+      .filter((t) => t.goal_id === goalId)
+      .reduce((sum, t) => sum + t.amount, 0);
+    const newlyLinked = transactions
+      .filter((t) => transactionIds.includes(t.id))
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalUsed = currentLinked + newlyLinked;
+
+    if (totalUsed >= goal.target_amount && !goal.is_completed) {
+      await updateGoal(goalId, { is_completed: true });
+      return { completed: true };
+    }
+
+    return { completed: false };
+  },
+
+  unlinkTransactionFromGoal: async (transactionId) => {
+    const { error } = await supabase
+      .from("transactions")
+      .update({ goal_id: null })
+      .eq("id", transactionId);
+
+    if (!error) {
+      set((s) => ({
+        transactions: s.transactions.map((t) =>
+          t.id === transactionId ? { ...t, goal_id: null } : t
+        ),
+      }));
+    }
+  },
+
+  getGoalLinkedTransactions: (goalId) => {
+    const { transactions } = get();
+    return transactions.filter((t) => t.goal_id === goalId);
+  },
+
+  getGoalUsedAmount: (goalId) => {
+    const { transactions } = get();
+    return transactions
+      .filter((t) => t.goal_id === goalId)
+      .reduce((sum, t) => sum + t.amount, 0);
+  },
+
   getAccountGoalStats: (accountId) => {
-    const { goals, getLiveAccountBalance } = get();
-    const allocated = goals
-      .filter((g) => g.account_id === accountId && !g.is_completed)
-      .reduce((sum, g) => sum + g.current_amount, 0);
+    const { goals, transactions, getLiveAccountBalance } = get();
+    const activeGoals = goals.filter((g) => g.account_id === accountId && !g.is_completed);
+    const allocated = activeGoals.reduce((sum, g) => sum + g.current_amount, 0);
+    const activeGoalIds = new Set(activeGoals.map((g) => g.id));
+    const used = transactions
+      .filter((t) => t.goal_id && activeGoalIds.has(t.goal_id))
+      .reduce((sum, t) => sum + t.amount, 0);
+    const available = Math.max(0, allocated - used);
     const liveBalance = getLiveAccountBalance(accountId);
-    return { allocated, free: Math.max(0, liveBalance - allocated) };
+    return { allocated, used, available, free: Math.max(0, liveBalance - available) };
   },
 
   // ── Travel Mode ──────────────────────────────────────────────────────────

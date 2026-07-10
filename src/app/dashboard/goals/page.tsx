@@ -5,11 +5,11 @@ import { useAppStore } from "@/lib/store";
 import { Goal } from "@/lib/types";
 import { AddGoalDialog } from "@/components/dashboard/add-goal-dialog";
 import { ContributeGoalDialog } from "@/components/dashboard/contribute-goal-dialog";
-import { RedeemGoalDialog } from "@/components/dashboard/redeem-goal-dialog";
+import { LinkSpendingDialog } from "@/components/dashboard/link-spending-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Plus, Target, Trash2, CheckCircle2, CalendarClock, TrendingUp, Wallet,
-  PartyPopper, Banknote, RotateCcw,
+  PartyPopper, Banknote, RotateCcw, Link2,
 } from "lucide-react";
 import { formatDistanceToNow, isPast, parseISO } from "date-fns";
 
@@ -18,10 +18,10 @@ const fmt = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
 export default function GoalsPage() {
-  const { goals, accounts, deleteGoal, getAccountGoalStats, getLiveAccountBalance, withdrawFromGoal } = useAppStore();
+  const { goals, accounts, deleteGoal, getAccountGoalStats, getLiveAccountBalance, getGoalUsedAmount, updateGoal } = useAppStore();
   const [showAdd, setShowAdd] = useState(false);
   const [contributeGoal, setContributeGoal] = useState<Goal | null>(null);
-  const [redeemGoal, setRedeemGoal] = useState<Goal | null>(null);
+  const [linkSpendingGoal, setLinkSpendingGoal] = useState<Goal | null>(null);
 
   const activeGoals = goals.filter((g) => !g.is_completed);
   const completedGoals = goals.filter((g) => g.is_completed);
@@ -77,9 +77,10 @@ export default function GoalsPage() {
             <GoalCard
               key={goal.id}
               goal={goal}
-              onContribute={() => setContributeGoal(goal)}
-              onRedeem={() => setRedeemGoal(goal)}
+              onManage={() => setContributeGoal(goal)}
+              onLinkSpending={() => setLinkSpendingGoal(goal)}
               onDelete={() => deleteGoal(goal.id)}
+              onComplete={() => updateGoal(goal.id, { is_completed: true })}
             />
           ))}
         </div>
@@ -97,23 +98,24 @@ export default function GoalsPage() {
 
           <div className="rounded-2xl border border-border/50 overflow-hidden">
             {/* Header row */}
-            <div className="grid grid-cols-4 px-4 py-2.5 bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-5 px-4 py-2.5 bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Account</span>
-              <span className="text-right">Live Balance</span>
+              <span className="text-right">Balance</span>
               <span className="text-right">Allocated</span>
-              <span className="text-right">Free Savings</span>
+              <span className="text-right">Utilized</span>
+              <span className="text-right">Free</span>
             </div>
 
             {/* Data rows */}
             {accounts.map((account, i) => {
               const liveBalance = getLiveAccountBalance(account.id);
-              const { allocated, free } = getAccountGoalStats(account.id);
+              const { allocated, used, available, free } = getAccountGoalStats(account.id);
               const allocatedPct = liveBalance > 0 ? (allocated / liveBalance) * 100 : 0;
 
               return (
                 <div
                   key={account.id}
-                  className={`grid grid-cols-4 items-center px-4 py-3.5 gap-2 ${
+                  className={`grid grid-cols-5 items-center px-4 py-3.5 gap-2 ${
                     i !== accounts.length - 1 ? "border-b border-border/30" : ""
                   }`}
                 >
@@ -148,6 +150,11 @@ export default function GoalsPage() {
                     )}
                   </div>
 
+                  {/* Utilized */}
+                  <span className={`text-right text-sm font-semibold tabular-nums ${used > 0 ? "text-rose-400" : "text-muted-foreground"}`}>
+                    {fmt(used)}
+                  </span>
+
                   {/* Free savings */}
                   <span className={`text-right text-sm font-bold tabular-nums ${free > 0 ? "text-emerald-500" : "text-muted-foreground"}`}>
                     {fmt(free)}
@@ -157,13 +164,16 @@ export default function GoalsPage() {
             })}
 
             {/* Summary totals */}
-            <div className="grid grid-cols-4 px-4 py-3 bg-muted/20 border-t border-border/50 text-sm font-bold">
+            <div className="grid grid-cols-5 px-4 py-3 bg-muted/20 border-t border-border/50 text-sm font-bold">
               <span className="text-muted-foreground">Total</span>
               <span className="text-right tabular-nums">
                 {fmt(accounts.reduce((s, a) => s + getLiveAccountBalance(a.id), 0))}
               </span>
               <span className="text-right tabular-nums text-amber-500">
                 {fmt(accounts.reduce((s, a) => s + getAccountGoalStats(a.id).allocated, 0))}
+              </span>
+              <span className="text-right tabular-nums text-rose-400">
+                {fmt(accounts.reduce((s, a) => s + getAccountGoalStats(a.id).used, 0))}
               </span>
               <span className="text-right tabular-nums text-emerald-500">
                 {fmt(accounts.reduce((s, a) => s + getAccountGoalStats(a.id).free, 0))}
@@ -174,7 +184,8 @@ export default function GoalsPage() {
           <p className="text-xs text-muted-foreground px-1">
             <TrendingUp className="inline h-3 w-3 mr-1" />
             <strong>Allocated</strong> = funds reserved for active goals.{" "}
-            <strong>Free Savings</strong> = balance not yet committed to any goal.
+            <strong>Utilized</strong> = linked spending from goals.{" "}
+            <strong>Free</strong> = balance not committed to any goal.
           </p>
         </section>
       )}
@@ -196,15 +207,22 @@ export default function GoalsPage() {
               >
                 <span className="text-2xl">{goal.icon}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{goal.name}</p>
+                  <p className="font-semibold text-sm line-clamp-2 leading-tight">{goal.name}</p>
                   <p className="text-xs text-emerald-500 font-medium">
-                    {fmt(goal.target_amount)} · Redeemed 🎉
+                    {fmt(goal.target_amount)} · Completed 🎉
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
+                    onClick={() => setLinkSpendingGoal(goal)}
+                    title="View linked spending"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
                     onClick={() => setContributeGoal(goal)}
-                    title="Manage funds (withdraw to reactivate)"
+                    title="Manage funds"
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
@@ -220,7 +238,7 @@ export default function GoalsPage() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground px-1">
-            💡 Hover on a completed goal and click <RotateCcw className="inline h-3 w-3" /> to withdraw funds — this will reactivate the goal.
+            💡 Hover on a completed goal to view linked spending, manage funds, or delete.
           </p>
         </section>
       )}
@@ -228,7 +246,7 @@ export default function GoalsPage() {
       {/* ── Dialogs ───────────────────────────────────────────────────── */}
       <AddGoalDialog open={showAdd} onClose={() => setShowAdd(false)} />
       <ContributeGoalDialog goal={contributeGoal} onClose={() => setContributeGoal(null)} />
-      <RedeemGoalDialog goal={redeemGoal} onClose={() => setRedeemGoal(null)} />
+      <LinkSpendingDialog goal={linkSpendingGoal} onClose={() => setLinkSpendingGoal(null)} />
     </div>
   );
 }
@@ -236,21 +254,26 @@ export default function GoalsPage() {
 // ─── Goal Card ───────────────────────────────────────────────────────────────
 function GoalCard({
   goal,
-  onContribute,
-  onRedeem,
+  onManage,
+  onLinkSpending,
   onDelete,
+  onComplete,
 }: {
   goal: Goal;
-  onContribute: () => void;
-  onRedeem: () => void;
+  onManage: () => void;
+  onLinkSpending: () => void;
   onDelete: () => void;
+  onComplete: () => void;
 }) {
   const progressPct = Math.min((goal.current_amount / goal.target_amount) * 100, 100);
   const remaining = goal.target_amount - goal.current_amount;
   const isOverdue = goal.deadline && isPast(parseISO(goal.deadline));
   const isTargetReached = goal.current_amount >= goal.target_amount;
-  const { accounts } = useAppStore();
+  const { accounts, getGoalUsedAmount } = useAppStore();
   const linkedAccount = accounts.find((a) => a.id === goal.account_id);
+  const usedAmount = getGoalUsedAmount(goal.id);
+  const availableAmount = Math.max(0, goal.current_amount - usedAmount);
+  const yetToSave = Math.max(0, goal.target_amount - goal.current_amount);
 
   return (
     <div
@@ -277,7 +300,7 @@ function GoalCard({
 
       {/* Top row: icon + name + delete */}
       <div className="flex items-start justify-between gap-2 relative">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div
             className="h-11 w-11 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
             style={{ backgroundColor: goal.color + "25" }}
@@ -285,7 +308,7 @@ function GoalCard({
             {goal.icon}
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-sm leading-tight truncate">{goal.name}</p>
+            <p className="font-semibold text-sm leading-tight line-clamp-2">{goal.name}</p>
             {linkedAccount && (
               <p className="text-xs text-muted-foreground mt-0.5 truncate">
                 {linkedAccount.name}
@@ -301,7 +324,7 @@ function GoalCard({
         </button>
       </div>
 
-      {/* Amounts */}
+      {/* Amounts & Progress */}
       <div className="relative space-y-2">
         <div className="flex justify-between items-end">
           <div>
@@ -333,11 +356,36 @@ function GoalCard({
           />
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          {isTargetReached
-            ? "🎉 Your savings target has been reached!"
-            : `${fmt(remaining)} to go`}
-        </p>
+        {/* Financial Breakdown */}
+        <div className="grid grid-cols-3 gap-1 pt-1">
+          {usedAmount > 0 && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Spent</p>
+              <p className="text-xs font-bold tabular-nums text-rose-400">{fmt(usedAmount)}</p>
+            </div>
+          )}
+          {usedAmount > 0 && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Available</p>
+              <p className="text-xs font-bold tabular-nums text-emerald-500">{fmt(availableAmount)}</p>
+            </div>
+          )}
+          {yetToSave > 0 && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Yet to Save</p>
+              <p className="text-xs font-bold tabular-nums text-muted-foreground">{fmt(yetToSave)}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Status text */}
+        {usedAmount === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {isTargetReached
+              ? "🎉 Your savings target has been reached!"
+              : `${fmt(remaining)} to go`}
+          </p>
+        )}
       </div>
 
       {/* Deadline badge */}
@@ -355,37 +403,38 @@ function GoalCard({
         </div>
       )}
 
-      {/* CTA — changes based on state */}
-      {isTargetReached ? (
-        <div className="flex gap-2 mt-auto">
+      {/* CTA — Manage + Link Spending (always), Mark Complete (when target reached) */}
+      <div className="flex flex-col gap-2 mt-auto">
+        <div className="flex gap-2">
           <Button
-            onClick={onContribute}
+            onClick={onManage}
             variant="outline"
             size="sm"
             className="flex-1 rounded-xl text-xs"
           >
-            Manage
+            Manage Funds
           </Button>
           <Button
-            onClick={onRedeem}
+            onClick={onLinkSpending}
             size="sm"
-            className="flex-1 rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-700"
+            className="flex-1 rounded-xl text-xs font-semibold text-white"
+            style={{ backgroundColor: goal.color }}
           >
-            <Banknote className="h-3.5 w-3.5 mr-1.5" />
-            Withdraw Funds
+            <Link2 className="h-3.5 w-3.5 mr-1" />
+            Link Spending
           </Button>
         </div>
-      ) : (
-        <Button
-          onClick={onContribute}
-          size="sm"
-          className="w-full rounded-xl font-semibold text-white mt-auto"
-          style={{ backgroundColor: goal.color }}
-        >
-          Add Funds
-        </Button>
-      )}
+        {isTargetReached && (
+          <Button
+            onClick={onComplete}
+            size="sm"
+            className="w-full rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-700"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+            Mark as Complete
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
-

@@ -15,6 +15,7 @@ export interface Transaction {
   import_source?: "manual" | "csv_upload" | "pdf_upload";
   import_hash?: string;
   trip_id?: string | null;
+  goal_id?: string | null;
   exclude_from_ledger?: boolean;
   created_at?: string;
   updated_at?: string;
